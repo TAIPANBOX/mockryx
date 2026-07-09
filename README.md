@@ -116,8 +116,9 @@ make build   # -> ./bin/mockryx
 
 ```sh
 # Rehearse the shipped example scenarios against your own pre-production
-# gateway (already pointed at a fake/echo provider):
-./bin/mockryx run ./scenarios --gateway http://127.0.0.1:8080
+# gateway (already pointed at a fake/echo provider). Flags may go before or
+# after the scenario directory:
+./bin/mockryx run --gateway http://127.0.0.1:8080 ./scenarios
 
 # ... or via environment variables:
 export MOCKRYX_GATEWAY=http://127.0.0.1:8080
@@ -126,16 +127,26 @@ export MOCKRYX_EVENTS_PATH=out/events.ndjson   # optional, opt-in telemetry
 ./bin/mockryx run ./scenarios
 
 # Save a report, then re-render it later without re-running anything:
-./bin/mockryx run ./scenarios --gateway http://127.0.0.1:8080 --save out/report.json
+./bin/mockryx run --gateway http://127.0.0.1:8080 --save out/report.json ./scenarios
 ./bin/mockryx report out/report.json
 ./bin/mockryx report --format json out/report.json
 
 ./bin/mockryx version
 ```
 
-Flags on `run` always take precedence over the environment. `run` and
-`report` both exit non-zero if any scenario produced a `Finding`, so both
-slot straight into a CI gate.
+Flags on `run` always take precedence over the environment, and may be given
+before or after the scenario directory.
+
+### Exit codes
+
+`run` and `report` use distinct exit codes so a CI gate can tell a real
+guardrail gap from a misconfigured harness:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Every rehearsed guardrail held: no `Finding`. |
+| `1` | The run completed and found one or more defensive gaps (a `Finding`). This is the signal a CI gate should fail on. |
+| `2` | A usage, config, or load error (bad flag, wrong argument count, no gateway, unreadable scenario directory): nothing was actually rehearsed, so treat it as a broken harness, not a guardrail gap. |
 
 ---
 

@@ -27,7 +27,7 @@ staticcheck:
 # running (set MOCKRYX_GATEWAY, or pass --gateway). This is a fire drill
 # against infrastructure you own; it never targets anything else.
 run: build
-	./bin/mockryx run ./scenarios --gateway "$${MOCKRYX_GATEWAY:-http://127.0.0.1:8080}"
+	./bin/mockryx run --gateway "$${MOCKRYX_GATEWAY:-http://127.0.0.1:8080}" ./scenarios
 
 clean:
 	rm -rf bin

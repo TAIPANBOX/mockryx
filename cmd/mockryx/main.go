@@ -11,6 +11,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -26,11 +27,50 @@ import (
 // version is overridden at build time via -ldflags.
 var version = "dev"
 
+// Process exit codes. They let a CI gate tell a real guardrail gap from a
+// misconfigured harness:
+//
+//	0  every rehearsed guardrail held.
+//	1  the run completed and found one or more defensive gaps (a Finding).
+//	2  a usage, config, or load error (bad flag, wrong argument count, no
+//	   gateway, unreadable scenario) so nothing was actually rehearsed.
+const (
+	exitOK       = 0
+	exitFindings = 1
+	exitUsage    = 2
+)
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "mockryx:", err)
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
+}
+
+// findingsError reports that a run (or a re-rendered report) completed and
+// surfaced defensive gaps. It is the ONLY error that maps to exit code 1;
+// every other failure is a usage/config/load error and maps to exit code 2.
+type findingsError struct {
+	findings  int
+	scenarios int
+}
+
+func (e *findingsError) Error() string {
+	return fmt.Sprintf("%d defensive gap(s) found across %d scenario(s)", e.findings, e.scenarios)
+}
+
+// exitCode maps an error returned by run to a process exit code. A
+// findingsError (even wrapped) means guardrail gaps were found (1); anything
+// else is a misconfigured or misinvoked harness (2).
+func exitCode(err error) int {
+	if err == nil {
+		return exitOK
+	}
+	var fe *findingsError
+	if errors.As(err, &fe) {
+		return exitFindings
+	}
+	return exitUsage
 }
 
 func run(args []string) error {
@@ -78,14 +118,15 @@ func runRun(args []string) error {
 		fmt.Fprintf(os.Stderr, "usage: mockryx run [flags] <scenario-dir>\n\nflags:\n")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	positionals, err := parseArgsAnyOrder(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
+	if len(positionals) != 1 {
 		fs.Usage()
 		return fmt.Errorf("run requires exactly one scenario directory")
 	}
-	dir := fs.Arg(0)
+	dir := positionals[0]
 
 	env := config.FromEnv()
 	gateway := firstNonEmpty(*gatewayFlag, env.Gateway)
@@ -143,7 +184,7 @@ func runRun(args []string) error {
 	}
 
 	if total > 0 {
-		return fmt.Errorf("%d defensive gap(s) found across %d scenario(s)", total, len(scenarios))
+		return &findingsError{findings: total, scenarios: len(scenarios)}
 	}
 	return nil
 }
@@ -155,15 +196,16 @@ func runReport(args []string) error {
 		fmt.Fprintf(os.Stderr, "usage: mockryx report [flags] <saved-report.json>\n\nflags:\n")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	positionals, err := parseArgsAnyOrder(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
+	if len(positionals) != 1 {
 		fs.Usage()
 		return fmt.Errorf("report requires exactly one path, from a prior 'run --save'")
 	}
 
-	rep, err := report.Load(fs.Arg(0))
+	rep, err := report.Load(positionals[0])
 	if err != nil {
 		return err
 	}
@@ -173,7 +215,7 @@ func runReport(args []string) error {
 	}
 
 	if total := rep.TotalFindings(); total > 0 {
-		return fmt.Errorf("%d defensive gap(s) found across %d scenario(s)", total, len(rep.Results))
+		return &findingsError{findings: total, scenarios: len(rep.Results)}
 	}
 	return nil
 }
@@ -187,6 +229,31 @@ func renderReport(format string, rep report.Report) error {
 		return report.JSON(os.Stdout, rep)
 	default:
 		return fmt.Errorf("unknown format %q", format)
+	}
+}
+
+// parseArgsAnyOrder parses fs while tolerating flags placed either before OR
+// after the positional arguments. Go's stdlib flag package stops parsing at the
+// first non-flag token, so on its own "run ./scenarios --gateway X" would leave
+// --gateway unset and strand ./scenarios: only the flags-first form works. This
+// peels off each positional as flag.Parse surfaces it, then re-parses the rest,
+// so "run --gateway X ./scenarios" and "run ./scenarios --gateway X" are
+// equivalent. It delegates to flag.Parse for every token, so a flag's value
+// (e.g. the X in "--gateway X") is never mistaken for a positional. It returns
+// the positionals in order; a flag-parsing error (unknown flag, missing value)
+// is returned unchanged.
+func parseArgsAnyOrder(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positionals []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		rest := fs.Args()
+		if len(rest) == 0 {
+			return positionals, nil
+		}
+		positionals = append(positionals, rest[0])
+		args = rest[1:]
 	}
 }
 
