@@ -79,8 +79,10 @@ flowchart TB
   BUS ==> IDX["Idryx: identity graph, detectors, Agent-BOM"]
   BUS ==> QX["Qryx: crypto / PQC, passport + hash-chain scan"]
   BUS ==> VX["Verdryx: quality / drift"]
+  VX ==>|"quality events"| BUS
   TF -->|"outcome-tagged traces"| VX
   MX["Mockryx: pre-prod safety rehearsal"] -->|"hostile scenarios"| TF
+  MX ==>|"sim events"| BUS
   TFP["terraform-provider-taipan"] -->|"budgets + passports as code"| CL
   ASG[["agent-stack-go: shared Go contract"]] -.->|imported by| IDX
   ASG -.->|imported by| WX
