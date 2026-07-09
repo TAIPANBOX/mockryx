@@ -99,15 +99,13 @@ The full stack is TokenFuse (spend), Wardryx (policy), Engram (memory), Idryx (a
 
 ## Install / build
 
-Requires Go 1.26+. Mockryx currently depends on
+Requires Go 1.26+. Mockryx depends on
 [`github.com/TAIPANBOX/agent-stack-go`](https://github.com/TAIPANBOX/agent-stack-go)
-via a local `replace` in `go.mod` (that module has no tagged release yet), so
-build it from a checkout that has `agent-stack-go` cloned as a sibling
-directory:
+at its tagged `v0.1.0` release, resolved from the module proxy like any other
+Go dependency: no local `replace`, no sibling checkout needed.
 
 ```sh
-git clone <mockryx-repo-url>       mockryx
-git clone <agent-stack-go-repo-url> agent-stack-go   # sibling of mockryx/
+git clone <mockryx-repo-url> mockryx
 cd mockryx
 make build   # -> ./bin/mockryx
 ```
@@ -274,12 +272,10 @@ or unwritable events path never blocks a run.
   runaway scenario is trying to trip. Left blank, the runner generates one
   per step invocation, so unrelated steps and separate `mockryx run`
   invocations never collide.
-- **`agent-stack-go` is a local sibling dependency, for now.** `go.mod`
-  requires `github.com/TAIPANBOX/agent-stack-go v0.0.0` with a `replace`
-  pointing at `../agent-stack-go`, since that module has no tagged release
-  yet. `.github/workflows/ci.yml` checks out both repos side by side to
-  match. Remove the `replace` (and the extra checkout) once
-  `agent-stack-go` publishes a real version.
+- **`agent-stack-go` is a tagged dependency.** `go.mod` requires
+  `github.com/TAIPANBOX/agent-stack-go v0.1.0` straight from the module
+  proxy: no `replace`, no local checkout. `.github/workflows/ci.yml` does a
+  single `actions/checkout` per job, the same as any other Go module.
 - **YAML is the one dependency beyond `agent-stack-go`.** `gopkg.in/yaml.v3`
   is added solely so scenario files can be authored as YAML, with comments,
   as well as JSON; nothing else in mockryx pulls in a third-party package.
