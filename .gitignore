@@ -1,0 +1,22 @@
+# OS
+.DS_Store
+
+# Go
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+
+# Env / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Editor
+.idea/
+.vscode/
+
+# Session / tooling (not part of the project)
+.claude/

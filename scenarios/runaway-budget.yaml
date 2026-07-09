@@ -1,0 +1,36 @@
+# runaway-budget: a fire drill for the budget Breaker.
+#
+# Defensive intent: this sends crafted, repeated requests carrying a tiny
+# budget to the operator's OWN pre-production gateway, with a fake or echo
+# provider behind it. It rehearses the "runaway agent" failure mode (an
+# agent stuck in a loop, burning spend) so we confirm our own Breaker cuts
+# it off quickly, before a real incident does. It never sends anything to a
+# real model provider or targets any system other than the gateway url
+# passed on the command line.
+#
+# The Breaker is a core, always-on gateway feature (unlike Wardryx or DLP),
+# so this scenario has no "requires": a miss here is always a genuine
+# defensive gap, never a "not configured" skip.
+name: runaway-budget
+description: >
+  A tier-1 support agent is given a tiny budget and told to keep looping.
+  The budget Breaker should cut it off with HTTP 402 well before it can
+  run away.
+steps:
+  - name: loop-until-breaker-trips
+    repeat: 8
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "mockryx fire drill: keep going until told to stop"
+    headers:
+      run_id: mockryx-runaway-budget
+      agent_id: agent://mockryx.local/rehearsal/tier1-bot
+      on_behalf_of: "user://mockryx.local/rehearsal-operator,agent://mockryx.local/rehearsal/orchestrator"
+      budget_usd: "0.001"
+      task_type: support_chat
+    expect:
+      status: 402
+      within_repeats: 8
