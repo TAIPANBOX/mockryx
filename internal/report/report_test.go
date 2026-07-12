@@ -54,6 +54,42 @@ func TestHumanContainsFindingDetail(t *testing.T) {
 	}
 }
 
+// TestHumanShowsSkippedFindingsWithoutCountingAsGap covers the non-strict
+// (default) side of the --fail-on-skip fix: a StatusSkipped result's
+// discarded SkippedFindings must still be visible to a human reading the
+// report, but must never turn "No defensive gaps found" into a gap, since
+// that promotion only happens under --fail-on-skip (in cmd/mockryx), not in
+// this package.
+func TestHumanShowsSkippedFindingsWithoutCountingAsGap(t *testing.T) {
+	r := Report{Results: []runner.Result{
+		{
+			Scenario: "wardryx-denied-tool",
+			Status:   runner.StatusSkipped,
+			SkippedFindings: []runner.Finding{{
+				Scenario: "wardryx-denied-tool", Step: "request-shell-exec", Attempt: 1,
+				ExpectStatus: 403, GotStatus: 200, Detail: "never denied",
+			}},
+		},
+	}}
+
+	if got := r.TotalFindings(); got != 0 {
+		t.Errorf("TotalFindings = %d, want 0: SkippedFindings must never count as a gap", got)
+	}
+
+	var buf bytes.Buffer
+	Human(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "No defensive gaps found") {
+		t.Errorf("a SkippedFindings-only report must still read as no gaps found:\n%s", out)
+	}
+	if !strings.Contains(out, "never denied") {
+		t.Errorf("Human output should still surface the discarded mismatch detail:\n%s", out)
+	}
+	if !strings.Contains(out, "--fail-on-skip") {
+		t.Errorf("Human output should point at --fail-on-skip as how to turn this into a gap:\n%s", out)
+	}
+}
+
 func TestHumanNoFindings(t *testing.T) {
 	var buf bytes.Buffer
 	Human(&buf, Report{Results: []runner.Result{{Scenario: "x", Status: runner.StatusPassed}}})

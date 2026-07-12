@@ -30,6 +30,29 @@ steps:
       status: 402
 `
 
+// wardryxScenario declares requires: wardryx, so the runner only counts a
+// mismatch as a defensive gap when the gateway's x-fuse-wardryx signal
+// header was seen at least once; otherwise it is StatusSkipped. See
+// TestRunCommandSkippedGuardrailPassesByDefault and
+// TestRunCommandFailOnSkipMakesSkipAFailure below.
+const wardryxScenario = `
+name: test-wardryx-denied
+requires: wardryx
+steps:
+  - name: request-shell-exec
+    request:
+      model: claude-haiku
+      messages:
+        - role: user
+          content: run a command
+      tools:
+        - name: shell_exec
+    expect:
+      status: 403
+      header:
+        x-fuse-wardryx: deny
+`
+
 func writeScenario(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
@@ -420,5 +443,82 @@ func TestRunCommandLoadErrorExitsTwo(t *testing.T) {
 	}
 	if got := exitCode(err); got != exitUsage {
 		t.Errorf("exitCode = %d, want %d", got, exitUsage)
+	}
+}
+
+// wardryxBrokenOrAbsentStub returns 200 with no headers at all: the shape a
+// gateway produces whether wardryx is genuinely not wired in, OR wardryx IS
+// wired in but is broken enough to let this exact request through with no
+// x-fuse-wardryx signal at all. mockryx cannot tell those two apart from the
+// wire alone, which is the whole reason StatusSkipped (not StatusFailed)
+// exists, and exactly the ambiguity --fail-on-skip lets an operator
+// override.
+func wardryxBrokenOrAbsentStub(t *testing.T) *httptest.Server {
+	t.Helper()
+	return breakerStub(t, http.StatusOK)
+}
+
+// TestRunCommandSkippedGuardrailPassesByDefault documents the intentional
+// default behavior this fix must not change: a scenario whose declared
+// guardrail's signal header is never observed is Skipped, not Failed, and
+// the run exits clean (0), because mockryx cannot distinguish "guardrail
+// absent" from "guardrail present but broken" from the wire alone.
+func TestRunCommandSkippedGuardrailPassesByDefault(t *testing.T) {
+	srv := wardryxBrokenOrAbsentStub(t)
+
+	dir := t.TempDir()
+	writeScenario(t, dir, "wardryx.yaml", wardryxScenario)
+
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = runRun([]string{"--gateway", srv.URL, dir})
+	})
+	if runErr != nil {
+		t.Fatalf("runRun = %v, want nil: a genuine/ambiguous skip is not a gap by default", runErr)
+	}
+	if got := exitCode(runErr); got != exitOK {
+		t.Errorf("exitCode = %d, want %d", got, exitOK)
+	}
+	if !strings.Contains(out, "skipped_not_configured") {
+		t.Errorf("report should show the scenario as skipped_not_configured:\n%s", out)
+	}
+}
+
+// TestRunCommandFailOnSkipMakesSkipAFailure is the regression test for the
+// bug: without this flag, a guardrail that IS configured but broken enough
+// to let a denied request through (200, no x-fuse-wardryx header) is
+// indistinguishable from one that was never wired in at all, so it reports
+// StatusSkipped and exits 0 -- a worst-case silent false pass. With
+// --fail-on-skip, an operator who knows the guardrail must be present can
+// turn that same Skipped result into a hard failure.
+//
+// This assertion fails on the pre-fix code (the flag does not exist yet, so
+// runRun returns a flag-parse usage error, exit code 2, not a
+// *findingsError) and passes once --fail-on-skip is wired in.
+func TestRunCommandFailOnSkipMakesSkipAFailure(t *testing.T) {
+	srv := wardryxBrokenOrAbsentStub(t)
+
+	dir := t.TempDir()
+	writeScenario(t, dir, "wardryx.yaml", wardryxScenario)
+
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = runRun([]string{"--gateway", srv.URL, "--fail-on-skip", dir})
+	})
+	if runErr == nil {
+		t.Fatal("expected a non-nil error: --fail-on-skip must turn a skipped guardrail into a failure")
+	}
+	if got := exitCode(runErr); got != exitFindings {
+		t.Errorf("exitCode = %d, want %d (the gaps class, not usage)", got, exitFindings)
+	}
+	var fe *findingsError
+	if !errors.As(runErr, &fe) {
+		t.Fatalf("expected a *findingsError, got %T: %v", runErr, runErr)
+	}
+	if !strings.Contains(out, "skipped_not_configured") {
+		t.Errorf("report should still show the scenario's real status, skipped_not_configured:\n%s", out)
+	}
+	if !strings.Contains(out, "defensive gap") {
+		t.Errorf("report should surface the promoted skip as a gap:\n%s", out)
 	}
 }

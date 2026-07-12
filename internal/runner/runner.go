@@ -74,7 +74,20 @@ type Result struct {
 	Scenario string    `json:"scenario"`
 	Status   Status    `json:"status"`
 	Findings []Finding `json:"findings,omitempty"`
-	Metrics  Metrics   `json:"metrics"`
+	// SkippedFindings holds the step mismatches that triggered StatusSkipped,
+	// discarded from Findings because the scenario's declared guardrail was
+	// never observed active. A mismatch here looks, from the wire alone,
+	// exactly like what a guardrail that IS configured but badly broken
+	// would also produce: absent and broken are indistinguishable without
+	// the signal header. SkippedFindings never counts toward a defensive
+	// gap and never affects exit code by default; it exists so a human
+	// reading the report can still see the near-miss, and so an operator
+	// who knows the guardrail must be present can promote it to a hard
+	// failure with --fail-on-skip (see cmd/mockryx). Populated only when
+	// Status is StatusSkipped, in which case it always has at least one
+	// entry.
+	SkippedFindings []Finding `json:"skipped_findings,omitempty"`
+	Metrics         Metrics   `json:"metrics"`
 }
 
 // httpTimeout bounds every request the runner sends, so an unresponsive
@@ -90,8 +103,10 @@ const httpTimeout = 15 * time.Second
 // feature; StatusSkipped when the scenario's declared Requires feature was
 // never once observed active; and StatusPassed otherwise. Findings is only
 // populated for StatusFailed: a StatusSkipped result deliberately drops its
-// raw mismatches, since they reflect an absent feature, not a defensive gap
-// to fix.
+// raw mismatches from Findings, since by default they reflect an absent
+// feature, not a defensive gap to fix. Those same raw mismatches are never
+// discarded outright, though: they land on SkippedFindings instead, so nothing
+// is silently thrown away.
 func Run(s scenario.Scenario, gatewayURL, apiKey string) Result {
 	client := &http.Client{Timeout: httpTimeout}
 
@@ -124,6 +139,7 @@ func Run(s scenario.Scenario, gatewayURL, apiKey string) Result {
 		// even reach the gateway is always a hard failure, regardless of
 		// what optional feature the scenario declares.
 		res.Status = StatusSkipped
+		res.SkippedFindings = findings
 	default:
 		res.Status = StatusFailed
 		res.Findings = findings

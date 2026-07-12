@@ -48,12 +48,43 @@ func Human(w io.Writer, r Report) {
 	total := r.TotalFindings()
 	if total == 0 {
 		fmt.Fprintln(w, "\nNo defensive gaps found. Every exercised guardrail held.")
+	} else {
+		fmt.Fprintf(w, "\n%d defensive gap(s):\n\n", total)
+		for _, res := range r.Results {
+			for _, f := range res.Findings {
+				fmt.Fprintf(w, "  [%s / %s] attempt %d: expected status %d", f.Scenario, f.Step, f.Attempt, f.ExpectStatus)
+				if len(f.ExpectHeader) > 0 {
+					fmt.Fprintf(w, " %v", f.ExpectHeader)
+				}
+				fmt.Fprintf(w, ", got %d. %s\n", f.GotStatus, f.Detail)
+			}
+		}
+	}
+
+	printSkippedFindings(w, r)
+}
+
+// printSkippedFindings writes the detail of every Result.SkippedFindings
+// across r: step mismatches that were discarded from Findings because their
+// scenario's declared guardrail was never observed active (StatusSkipped).
+// They never count toward TotalFindings, so they never turn "No defensive
+// gaps found" into a gap by themselves; this exists purely so a human
+// reading the report can still see a near-miss that would look identical to
+// a genuinely broken, not merely absent, guardrail (see --fail-on-skip in
+// cmd/mockryx, which promotes them into real Findings instead). Prints
+// nothing when there are none.
+func printSkippedFindings(w io.Writer, r Report) {
+	var n int
+	for _, res := range r.Results {
+		n += len(res.SkippedFindings)
+	}
+	if n == 0 {
 		return
 	}
 
-	fmt.Fprintf(w, "\n%d defensive gap(s):\n\n", total)
+	fmt.Fprintf(w, "\n%d skipped-as-not-configured mismatch(es), not counted as a gap unless run with --fail-on-skip:\n\n", n)
 	for _, res := range r.Results {
-		for _, f := range res.Findings {
+		for _, f := range res.SkippedFindings {
 			fmt.Fprintf(w, "  [%s / %s] attempt %d: expected status %d", f.Scenario, f.Step, f.Attempt, f.ExpectStatus)
 			if len(f.ExpectHeader) > 0 {
 				fmt.Fprintf(w, " %v", f.ExpectHeader)

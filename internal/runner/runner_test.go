@@ -190,6 +190,36 @@ func TestRunSkippedWhenGuardrailNotConfigured(t *testing.T) {
 	}
 }
 
+func TestRunSkippedKeepsDiscardedFindingOnSkippedFindings(t *testing.T) {
+	// Same broken-or-absent shape as TestRunSkippedWhenGuardrailNotConfigured
+	// above: the response mismatches Expect, but the signal header is never
+	// seen, so this is Skipped, not Failed. Findings must stay empty (a
+	// Skipped result is not a gap by default), but the raw mismatch must not
+	// be thrown away outright: it belongs on SkippedFindings, for a human
+	// reading the report, or an operator running --fail-on-skip, to still
+	// see it.
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusOK, nil
+	})
+
+	res := Run(wardryxScenario(), srv.URL, "")
+	if res.Status != StatusSkipped {
+		t.Fatalf("Status = %q, want skipped_not_configured", res.Status)
+	}
+	if len(res.Findings) != 0 {
+		t.Errorf("Findings = %+v, want none", res.Findings)
+	}
+	if len(res.SkippedFindings) != 1 {
+		t.Fatalf("SkippedFindings = %+v, want 1", res.SkippedFindings)
+	}
+	if res.SkippedFindings[0].GotStatus != http.StatusOK {
+		t.Errorf("SkippedFindings[0].GotStatus = %d, want 200", res.SkippedFindings[0].GotStatus)
+	}
+	if res.SkippedFindings[0].ExpectStatus != http.StatusForbidden {
+		t.Errorf("SkippedFindings[0].ExpectStatus = %d, want 403", res.SkippedFindings[0].ExpectStatus)
+	}
+}
+
 func TestRunTransportErrorIsAlwaysAFailure(t *testing.T) {
 	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
 		return http.StatusOK, nil

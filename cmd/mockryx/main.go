@@ -53,9 +53,19 @@ func main() {
 type findingsError struct {
 	findings  int
 	scenarios int
+	// skipped counts scenarios whose gap only exists because --fail-on-skip
+	// promoted a StatusSkipped result's discarded findings into the total
+	// (see runRun). It is 0 in the ordinary case. It only changes Error()'s
+	// message, never exitCode's mapping: a strict-mode skip is still
+	// squarely in the "gaps" class (exit 1), not usage (exit 2).
+	skipped int
 }
 
 func (e *findingsError) Error() string {
+	if e.skipped > 0 {
+		return fmt.Sprintf("%d defensive gap(s) found across %d scenario(s) (including %d skipped-as-not-configured, treated as a gap because --fail-on-skip was set)",
+			e.findings, e.scenarios, e.skipped)
+	}
 	return fmt.Sprintf("%d defensive gap(s) found across %d scenario(s)", e.findings, e.scenarios)
 }
 
@@ -113,6 +123,7 @@ func runRun(args []string) error {
 		eventsFlag  = fs.String("events", "", "path to append sim_run/sim_finding/blast_radius_measured events to (default: $MOCKRYX_EVENTS_PATH)")
 		format      = fs.String("format", "human", "report format: human|json")
 		savePath    = fs.String("save", "", "also write the JSON report to this path, for 'mockryx report' later")
+		failOnSkip  = fs.Bool("fail-on-skip", false, "treat a scenario skipped as not-configured (its guardrail's signal header was never observed) as a defensive gap; off by default, since a genuine skip is not a gap on its own")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: mockryx run [flags] <scenario-dir>\n\nflags:\n")
@@ -170,6 +181,31 @@ func runRun(args []string) error {
 		_ = emitter.BlastRadiusMeasured(runID, s.Name, res.Metrics.Calls, res.Metrics.BudgetBurnedUSD)
 	}
 
+	// --fail-on-skip promotes a StatusSkipped result's discarded
+	// SkippedFindings into Findings before anything downstream reads rep: an
+	// operator who knows a guardrail must be present cannot tell "absent"
+	// from "present but broken enough to let this exact request through"
+	// from the wire alone (that ambiguity is exactly why Skipped exists and
+	// is not a gap by default), so this is their explicit override for when
+	// they know better. Status is left as StatusSkipped, so the report still
+	// honestly shows what the runner observed; it is now just paired with a
+	// non-zero FINDINGS count, in both the human and JSON report and in
+	// TotalFindings, exactly like an ordinary Finding. This does not
+	// retroactively emit sim_finding events for the promoted findings: event
+	// emission already happened, per scenario, in the loop above.
+	skipped := 0
+	if *failOnSkip {
+		for i := range rep.Results {
+			res := &rep.Results[i]
+			if res.Status != runner.StatusSkipped {
+				continue
+			}
+			skipped++
+			res.Findings = append(res.Findings, res.SkippedFindings...)
+			res.SkippedFindings = nil
+		}
+	}
+
 	total := rep.TotalFindings()
 	_ = emitter.SimRun(runID, "end", len(scenarios), total, gateway)
 
@@ -184,7 +220,7 @@ func runRun(args []string) error {
 	}
 
 	if total > 0 {
-		return &findingsError{findings: total, scenarios: len(scenarios)}
+		return &findingsError{findings: total, scenarios: len(scenarios), skipped: skipped}
 	}
 	return nil
 }
