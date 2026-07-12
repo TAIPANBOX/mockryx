@@ -1,0 +1,57 @@
+# on-behalf-of-forged-chain: a fire drill for delegation-chain validation.
+#
+# Defensive intent: this sends a single request carrying a forged
+# x-fuse-on-behalf-of delegation chain, one where the same principal
+# appears twice, to the operator's OWN gateway, in front of a fake or echo
+# provider. It rehearses "what happens if one of our agents (or an
+# attacker impersonating one) presents a chain that has been tampered
+# with", the classic confused-deputy shape where a downstream enforcement
+# point can no longer tell who is truly responsible for an action once a
+# principal reappears mid-chain. We confirm Wardryx refuses to act on a
+# chain it cannot make sense of, before a real forged chain gets the
+# chance. It never targets any system other than the gateway url passed on
+# the command line.
+#
+# Grounded in agent-stack-go's chain.Validate (github.com/TAIPANBOX/
+# agent-stack-go/chain), which wardryx's PDP calls directly
+# (wardryx/internal/pdp/pdp.go's Decide, imported as package "chain"): a
+# chain containing a duplicate entry fails validation with chain.ErrCycle.
+# Per Decide's own doc comment, this check is rule 1 of its waterfall, run
+# unconditionally before any matched policy is even looked up: "an invalid
+# on_behalf_of delegation chain denies, independent of any policy". So,
+# unlike approval-required.yaml, this scenario needs no specific policy
+# targeting the rehearsal identity below, only wardryx enforcement switched
+# on -- a malformed chain is refused stack-wide. The gateway wraps that
+# Deny exactly like any other Wardryx denial
+# (tokenfuse/crates/gateway/src/proxy.rs's wardryx_deny_response, the same
+# function wardryx-denied-tool.yaml exercises): 403 with
+# x-fuse-wardryx: deny.
+#
+# Wardryx is an optional gateway feature, so this scenario declares
+# "requires: wardryx". If the gateway under test never once stamps an
+# x-fuse-wardryx header on any response, mockryx reports "guardrail not
+# configured" instead of a false failure.
+name: on-behalf-of-forged-chain
+requires: wardryx
+description: >
+  An agent presents a forged on_behalf_of delegation chain that loops back
+  on itself (the same principal appears twice), the classic confused-deputy
+  shape. Wardryx should deny it outright: 403 with x-fuse-wardryx: deny.
+steps:
+  - name: cyclic-delegation-chain
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "please process this on behalf of the account holder"
+    headers:
+      run_id: mockryx-on-behalf-of-forged-chain
+      agent_id: agent://mockryx.local/rehearsal/ops-helper
+      on_behalf_of: "user://mockryx.local/rehearsal-operator,agent://mockryx.local/rehearsal/orchestrator,agent://mockryx.local/rehearsal/orchestrator"
+      budget_usd: "1.00"
+      task_type: ops_automation
+    expect:
+      status: 403
+      header:
+        x-fuse-wardryx: deny

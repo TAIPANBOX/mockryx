@@ -243,7 +243,7 @@ func TestLoadFileMissing(t *testing.T) {
 	}
 }
 
-// TestShippedExampleScenariosParse pins the three example scenarios under
+// TestShippedExampleScenariosParse pins the example scenarios under
 // scenarios/ to the parser: they must always be valid, loadable scenarios,
 // so this fails loudly the moment they drift out of sync with the format.
 func TestShippedExampleScenariosParse(t *testing.T) {
@@ -251,15 +251,18 @@ func TestShippedExampleScenariosParse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDir(../../scenarios): %v", err)
 	}
-	if len(scenarios) < 3 {
-		t.Fatalf("got %d example scenarios, want at least 3", len(scenarios))
+	if len(scenarios) < 5 {
+		t.Fatalf("got %d example scenarios, want at least 5", len(scenarios))
 	}
 
 	byName := map[string]Scenario{}
 	for _, s := range scenarios {
 		byName[s.Name] = s
 	}
-	for _, name := range []string{"runaway-budget", "wardryx-denied-tool", "dlp-secret-leak"} {
+	for _, name := range []string{
+		"runaway-budget", "wardryx-denied-tool", "dlp-secret-leak",
+		"approval-required", "on-behalf-of-forged-chain",
+	} {
 		if _, ok := byName[name]; !ok {
 			t.Errorf("expected shipped example scenario %q", name)
 		}
@@ -272,6 +275,12 @@ func TestShippedExampleScenariosParse(t *testing.T) {
 	}
 	if byName["runaway-budget"].Requires != "" {
 		t.Error("runaway-budget rehearses a core guardrail and must not declare requires")
+	}
+	if byName["approval-required"].Requires != "wardryx" {
+		t.Error(`approval-required must declare requires: "wardryx"`)
+	}
+	if byName["on-behalf-of-forged-chain"].Requires != "wardryx" {
+		t.Error(`on-behalf-of-forged-chain must declare requires: "wardryx"`)
 	}
 }
 

@@ -1,0 +1,76 @@
+# approval-required: a fire drill for the human-approval gate on costly
+# actions.
+#
+# Defensive intent: this sends a single, deliberately high-cost action (a
+# very large max_tokens on a top-tier model, picked so the pre-flight cost
+# estimate clears any realistic require_human_above_usd threshold an
+# operator might configure, whatever their exact price book looks like) to
+# the operator's OWN gateway, in front of a fake or echo provider, WITHOUT
+# an approval token attached. It rehearses "what happens if one of our
+# agents tries to take a costly, consequential action nobody signed off
+# on", so we confirm Wardryx holds it for a human rather than letting it
+# proceed, before a real agent (or a prompt-injected one) gets the chance
+# to spend real money unsupervised. It never runs the action for real and
+# never targets any system other than the gateway url passed on the
+# command line.
+#
+# Grounded in wardryx/internal/pdp/pdp.go's Decide: a matched policy's
+# require_human_above_usd, exceeded by the call's estimated cost, resolves
+# to Hold when no approval_token is presented (a valid token would resolve
+# to Allow; a presented-but-invalid token would resolve to Deny instead --
+# see Decide's doc comment -- neither applies here, since this step
+# presents no token at all). The gateway wraps that Hold exactly like
+# tokenfuse/crates/gateway/src/proxy.rs's wardryx_hold_response: 403 with
+# x-fuse-wardryx: hold, plus an x-fuse-approval-id header carrying a fresh
+# id minted for this specific hold. That id is new on every run, so it is
+# not asserted here (expect.header only matches an exact, known value) --
+# only the stable x-fuse-wardryx: hold signal is.
+#
+# The dollar amount a real bank sets for require_human_above_usd is theirs
+# to configure, not something mockryx can know from outside, so this picks
+# a max_tokens large enough to clear practically any such threshold under
+# practically any per-token rate: even at tokenfuse's cheapest listed
+# output rate, this step's estimate lands in the hundreds of dollars, and
+# at its conservative unknown-model fallback rate (ADR-8: priced at the
+# most expensive known model) it lands far higher still. Same spirit as
+# runaway-budget.yaml's deliberately tiny budget_usd: an extreme value
+# picked to trip the guardrail regardless of the exact configured number.
+#
+# This assumes rules earlier in Decide's waterfall (deny_tool,
+# deny_if_unattested, max_steps, allow_domains) do not themselves match
+# first for the rehearsal identity below -- if an operator's own policy
+# denies this specific agent_id for an unrelated reason, Wardryx will
+# report deny, not hold, and mockryx will surface that mismatch as a
+# Finding worth a human's attention, rather than silently passing. As with
+# every other shipped scenario, this rehearsal identity is expected to be
+# one the operator has configured (or left unmatched by any stricter rule)
+# specifically to exercise this one guardrail.
+#
+# Wardryx is an optional gateway feature, so this scenario declares
+# "requires: wardryx". If the gateway under test never once stamps an
+# x-fuse-wardryx header on any response, mockryx reports "guardrail not
+# configured" instead of a false failure.
+name: approval-required
+requires: wardryx
+description: >
+  An agent asks for a very high-cost action with no approval token
+  attached. Wardryx should hold it for a human to sign off rather than let
+  it run: 403 with x-fuse-wardryx: hold.
+steps:
+  - name: high-cost-action-no-token
+    request:
+      model: claude-opus-4-5
+      max_tokens: 500000000
+      messages:
+        - role: user
+          content: "please go ahead and process this transaction now"
+    headers:
+      run_id: mockryx-approval-required
+      agent_id: agent://mockryx.local/rehearsal/payments-bot
+      on_behalf_of: "user://mockryx.local/rehearsal-operator"
+      budget_usd: "5000.00"
+      task_type: payments_automation
+    expect:
+      status: 403
+      header:
+        x-fuse-wardryx: hold

@@ -427,3 +427,137 @@ func TestRunMultiStepScenarioAggregatesAcrossSteps(t *testing.T) {
 		t.Errorf("Calls = %d, want 2", res.Metrics.Calls)
 	}
 }
+
+// approvalRequiredScenario mirrors scenarios/approval-required.yaml: a
+// high-cost action with no approval_token attached, which wardryx's PDP
+// (internal/pdp/pdp.go's Decide, in the wardryx repo) resolves to Hold
+// once a matched policy's require_human_above_usd is exceeded and no
+// token is presented. The gateway wraps a Hold via wardryx_hold_response
+// (tokenfuse's proxy.rs): 403 with x-fuse-wardryx: hold.
+func approvalRequiredScenario() scenario.Scenario {
+	return scenario.Scenario{
+		Name:     "approval-required",
+		Requires: "wardryx",
+		Steps: []scenario.Step{{
+			Name: "high-cost-action-no-token",
+			Request: scenario.Request{
+				Model:     "claude-opus-4-5",
+				MaxTokens: 500000000,
+				Messages:  []scenario.Message{{Role: "user", Content: "please go ahead and process this transaction now"}},
+			},
+			Expect: scenario.Expect{
+				Status: http.StatusForbidden,
+				Header: map[string]string{"x-fuse-wardryx": "hold"},
+			},
+		}},
+	}
+}
+
+func TestRunApprovalRequiredPassesOnHold(t *testing.T) {
+	// The x-fuse-approval-id value is minted fresh per hold on the real
+	// gateway, so it is sent here for realism but never asserted by
+	// Expect: only the stable x-fuse-wardryx: hold signal is.
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusForbidden, map[string]string{
+			"x-fuse-wardryx":     "hold",
+			"x-fuse-approval-id": "appr-test-1",
+		}
+	})
+
+	res := Run(approvalRequiredScenario(), srv.URL, "")
+	if res.Status != StatusPassed {
+		t.Errorf("Status = %q, want passed; findings = %+v", res.Status, res.Findings)
+	}
+	if len(res.Findings) != 0 {
+		t.Errorf("Findings = %+v, want none", res.Findings)
+	}
+}
+
+func TestRunApprovalRequiredFindingWhenBypassed(t *testing.T) {
+	// Wardryx is clearly wired in: it stamps x-fuse-wardryx on this call,
+	// but let a high-cost, tokenless action straight through instead of
+	// holding it for a human. That is a genuine gap, not a missing feature.
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusOK, map[string]string{"x-fuse-wardryx": "allow"}
+	})
+
+	res := Run(approvalRequiredScenario(), srv.URL, "")
+	if res.Status != StatusFailed {
+		t.Fatalf("Status = %q, want failed", res.Status)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("Findings = %+v, want 1", res.Findings)
+	}
+	if res.Findings[0].GotStatus != http.StatusOK {
+		t.Errorf("Finding.GotStatus = %d, want 200", res.Findings[0].GotStatus)
+	}
+	if res.Findings[0].ExpectStatus != http.StatusForbidden {
+		t.Errorf("Finding.ExpectStatus = %d, want 403", res.Findings[0].ExpectStatus)
+	}
+}
+
+// onBehalfOfForgedChainScenario mirrors
+// scenarios/on-behalf-of-forged-chain.yaml: a cyclic on_behalf_of chain
+// (the same principal twice) fails agent-stack-go's chain.Validate inside
+// wardryx's Decide, independent of any matched policy, and denies
+// outright. The gateway wraps that Deny via wardryx_deny_response, the
+// same function wardryxScenario above exercises: 403 with
+// x-fuse-wardryx: deny.
+func onBehalfOfForgedChainScenario() scenario.Scenario {
+	return scenario.Scenario{
+		Name:     "on-behalf-of-forged-chain",
+		Requires: "wardryx",
+		Steps: []scenario.Step{{
+			Name: "cyclic-delegation-chain",
+			Request: scenario.Request{
+				Model:    "claude-haiku",
+				Messages: []scenario.Message{{Role: "user", Content: "please process this on behalf of the account holder"}},
+			},
+			Headers: scenario.Headers{
+				OnBehalfOf: "user://test/operator,agent://test/orchestrator,agent://test/orchestrator",
+			},
+			Expect: scenario.Expect{
+				Status: http.StatusForbidden,
+				Header: map[string]string{"x-fuse-wardryx": "deny"},
+			},
+		}},
+	}
+}
+
+func TestRunOnBehalfOfForgedChainPassesOnDeny(t *testing.T) {
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
+	})
+
+	res := Run(onBehalfOfForgedChainScenario(), srv.URL, "")
+	if res.Status != StatusPassed {
+		t.Errorf("Status = %q, want passed; findings = %+v", res.Status, res.Findings)
+	}
+	if len(res.Findings) != 0 {
+		t.Errorf("Findings = %+v, want none", res.Findings)
+	}
+}
+
+func TestRunOnBehalfOfForgedChainFindingWhenBypassed(t *testing.T) {
+	// Wardryx is clearly wired in: it stamps x-fuse-wardryx on this call,
+	// but let a forged, self-referential delegation chain straight through
+	// instead of rejecting it. That is a genuine gap, not a missing
+	// feature.
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusOK, map[string]string{"x-fuse-wardryx": "allow"}
+	})
+
+	res := Run(onBehalfOfForgedChainScenario(), srv.URL, "")
+	if res.Status != StatusFailed {
+		t.Fatalf("Status = %q, want failed", res.Status)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("Findings = %+v, want 1", res.Findings)
+	}
+	if res.Findings[0].GotStatus != http.StatusOK {
+		t.Errorf("Finding.GotStatus = %d, want 200", res.Findings[0].GotStatus)
+	}
+	if res.Findings[0].ExpectStatus != http.StatusForbidden {
+		t.Errorf("Finding.ExpectStatus = %d, want 403", res.Findings[0].ExpectStatus)
+	}
+}
