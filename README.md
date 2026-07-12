@@ -14,28 +14,28 @@
 </div>
 
 Mockryx is a defensive self-test harness for the TAIPANBOX agent-governance
-stack: it replays crafted, hostile requests (prompt-injection strings, a
-denied tool-use request, a prompt that embeds a fake secret, a loop designed
-to burn through a budget) against an operator's own pre-production
-TokenFuse gateway running in its native mock-upstream mode, and confirms
-the operator's own guardrails still hold. It differentiates CLI exit codes
-so a CI job can tell a real guardrail gap from a broken harness, and it
-emits its own findings as agent-governance events onto the shared
-agent-event bus, so a fire drill leaves the same kind of audit trail as the
-guardrails it rehearses. It is a fire drill, not a fire: see **Defensive
-intent** below.
+stack: it replays crafted, hostile requests (a tool-use request of the kind
+a prompt-injected agent might make, a prompt that embeds a fake secret, a
+loop designed to burn through a budget) against an operator's own
+pre-production TokenFuse gateway running in its native mock-upstream mode,
+and confirms the operator's own guardrails still hold. It differentiates
+CLI exit codes so a CI job can tell a real guardrail gap from a broken
+harness, and it emits its own findings as agent-governance events onto the
+shared agent-event bus, so a fire drill leaves the same kind of audit trail
+as the guardrails it rehearses. It is a fire drill, not a fire: see
+**Defensive intent** below.
 
 ---
 
 ## Defensive intent
 
-Mockryx sends crafted requests, including "hostile" ones (prompt-injection
-strings, a request for a tool that should be denied, a prompt that embeds a
-fake secret, a loop designed to burn through a budget) to one place only: the
-gateway URL an operator passes it on the command line. In normal use that is
-the operator's own pre-production TokenFuse gateway, running in front of a
-fake or echo model provider, never a real one and never anyone else's
-system.
+Mockryx sends crafted requests, including "hostile" ones (a request for a
+tool that should be denied, of the kind a prompt-injected agent might make,
+a prompt that embeds a fake secret, a loop designed to burn through a
+budget) to one place only: the gateway URL an operator passes it on the
+command line. In normal use that is the operator's own pre-production
+TokenFuse gateway, running in front of a fake or echo model provider, never
+a real one and never anyone else's system.
 
 "Hostile input" here means replaying the kinds of input an operator's own
 agents could meet in the wild, so a weakness in the operator's own defenses
