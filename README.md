@@ -111,6 +111,8 @@ guardrail:
 | --- | --- | --- | --- |
 | `runaway-budget.yaml` | An agent stuck in a loop, burning spend on a tiny budget | (core, always-on) | `402` within 8 attempts |
 | `wardryx-denied-tool.yaml` | An agent asking to use a tool its policy should deny | `wardryx` | `403` + `x-fuse-wardryx: deny` |
+| `on-behalf-of-forged-chain.yaml` | An agent presenting a forged (cyclic) delegation chain | `wardryx` | `403` + `x-fuse-wardryx: deny` |
+| `approval-required.yaml` | A high-cost action submitted with no approval token | `wardryx` | `403` + `x-fuse-wardryx: hold` |
 | `dlp-secret-leak.yaml` | A prompt that embeds what looks like a live credential | `dlp` | `403` |
 
 `dlp-secret-leak.yaml` uses `AKIAIOSFODNN7EXAMPLE`, AWS's own well-known,
@@ -313,7 +315,7 @@ or unwritable events path never blocks a run.
 - [x] human + JSON report rendering, save/load (`mockryx report`)
 - [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.Writer`, opt-in (`MOCKRYX_EVENTS_PATH`)
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
-- [x] three shipped example scenarios: `runaway-budget` (core Breaker), `wardryx-denied-tool` (Wardryx), `dlp-secret-leak` (DLP)
+- [x] five shipped example scenarios: `runaway-budget` (core Breaker), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` (DLP)
 - [x] `agent-stack-go` v0.1.0 pinned dependency, no local `replace`
 - [ ] Later: additional built-in scenario packs and deeper blast-radius reporting, as new guardrails ship in TokenFuse / Wardryx
 
