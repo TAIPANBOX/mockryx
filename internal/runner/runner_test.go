@@ -2,12 +2,15 @@ package runner
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/TAIPANBOX/agent-stack-go/event"
 	"github.com/TAIPANBOX/mockryx/internal/scenario"
 )
 
@@ -69,7 +72,7 @@ func TestRunPassesWhenBreakerTripsWithinRepeats(t *testing.T) {
 		return http.StatusPaymentRequired, nil
 	})
 
-	res := Run(runawayScenario(5, 5), srv.URL, "")
+	res := Run(runawayScenario(5, 5), srv.URL, "", nil)
 	if res.Status != StatusPassed {
 		t.Errorf("Status = %q, want passed; findings = %+v", res.Status, res.Findings)
 	}
@@ -86,7 +89,7 @@ func TestRunFindingWhenBreakerNeverTrips(t *testing.T) {
 		return http.StatusOK, nil
 	})
 
-	res := Run(runawayScenario(4, 4), srv.URL, "")
+	res := Run(runawayScenario(4, 4), srv.URL, "", nil)
 	if res.Status != StatusFailed {
 		t.Fatalf("Status = %q, want failed", res.Status)
 	}
@@ -112,7 +115,7 @@ func TestRunFindingWhenBreakerFiresTooLate(t *testing.T) {
 		return http.StatusPaymentRequired, nil
 	})
 
-	res := Run(runawayScenario(5, 3), srv.URL, "")
+	res := Run(runawayScenario(5, 3), srv.URL, "", nil)
 	if res.Status != StatusFailed {
 		t.Fatalf("Status = %q, want failed (fired on attempt 5, after within_repeats=3)", res.Status)
 	}
@@ -151,7 +154,7 @@ func TestRunHeaderMatcherPasses(t *testing.T) {
 		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
 	})
 
-	res := Run(wardryxScenario(), srv.URL, "")
+	res := Run(wardryxScenario(), srv.URL, "", nil)
 	if res.Status != StatusPassed {
 		t.Errorf("Status = %q, want passed; findings = %+v", res.Status, res.Findings)
 	}
@@ -165,7 +168,7 @@ func TestRunHeaderMatcherFindingWhenGuardrailAllowsAnyway(t *testing.T) {
 		return http.StatusOK, map[string]string{"x-fuse-wardryx": "allow"}
 	})
 
-	res := Run(wardryxScenario(), srv.URL, "")
+	res := Run(wardryxScenario(), srv.URL, "", nil)
 	if res.Status != StatusFailed {
 		t.Fatalf("Status = %q, want failed", res.Status)
 	}
@@ -181,7 +184,7 @@ func TestRunSkippedWhenGuardrailNotConfigured(t *testing.T) {
 		return http.StatusOK, nil
 	})
 
-	res := Run(wardryxScenario(), srv.URL, "")
+	res := Run(wardryxScenario(), srv.URL, "", nil)
 	if res.Status != StatusSkipped {
 		t.Fatalf("Status = %q, want skipped_not_configured", res.Status)
 	}
@@ -202,7 +205,7 @@ func TestRunSkippedKeepsDiscardedFindingOnSkippedFindings(t *testing.T) {
 		return http.StatusOK, nil
 	})
 
-	res := Run(wardryxScenario(), srv.URL, "")
+	res := Run(wardryxScenario(), srv.URL, "", nil)
 	if res.Status != StatusSkipped {
 		t.Fatalf("Status = %q, want skipped_not_configured", res.Status)
 	}
@@ -227,7 +230,7 @@ func TestRunTransportErrorIsAlwaysAFailure(t *testing.T) {
 	badURL := srv.URL
 	srv.Close() // now unreachable, even though this scenario declares Requires
 
-	res := Run(wardryxScenario(), badURL, "")
+	res := Run(wardryxScenario(), badURL, "", nil)
 	if res.Status != StatusFailed {
 		t.Fatalf("Status = %q, want failed: a transport error must never read as skipped_not_configured", res.Status)
 	}
@@ -241,7 +244,7 @@ func TestRunHeaderMatchersAreCaseInsensitive(t *testing.T) {
 		return http.StatusForbidden, map[string]string{"X-Fuse-Wardryx": "deny"}
 	})
 
-	res := Run(wardryxScenario(), srv.URL, "")
+	res := Run(wardryxScenario(), srv.URL, "", nil)
 	if res.Status != StatusPassed {
 		t.Errorf("Status = %q, want passed: header matching must be case-insensitive", res.Status)
 	}
@@ -254,7 +257,7 @@ func TestRunSendsRunIDConsistentlyAcrossRepeats(t *testing.T) {
 		return http.StatusOK, nil
 	})
 
-	Run(runawayScenario(3, 3), srv.URL, "")
+	Run(runawayScenario(3, 3), srv.URL, "", nil)
 	if len(seen) != 3 {
 		t.Fatalf("got %d calls, want 3", len(seen))
 	}
@@ -277,7 +280,7 @@ func TestRunSendsExplicitRunIDVerbatim(t *testing.T) {
 
 	s := runawayScenario(1, 1)
 	s.Steps[0].Headers.RunID = "my-explicit-run-id"
-	Run(s, srv.URL, "")
+	Run(s, srv.URL, "", nil)
 	if got != "my-explicit-run-id" {
 		t.Errorf("x-fuse-run-id = %q, want my-explicit-run-id", got)
 	}
@@ -313,7 +316,7 @@ func TestRunSendsAPIKeyAndHeaders(t *testing.T) {
 			Expect: scenario.Expect{Status: http.StatusOK},
 		}},
 	}
-	Run(s, srv.URL, "test-api-key")
+	Run(s, srv.URL, "test-api-key", nil)
 
 	if gotAPIKey != "test-api-key" {
 		t.Errorf("x-api-key = %q", gotAPIKey)
@@ -355,7 +358,7 @@ func TestRunSendsRequestBodyShape(t *testing.T) {
 			Expect: scenario.Expect{Status: http.StatusOK},
 		}},
 	}
-	Run(s, srv.URL, "")
+	Run(s, srv.URL, "", nil)
 
 	if gotBody == nil {
 		t.Fatal("gateway never received a request body")
@@ -380,7 +383,7 @@ func TestRunMetricsSumsCostAcrossCalls(t *testing.T) {
 
 	// Expect 402, which never matches a 200 response, so every repeat runs
 	// and its cost is summed.
-	res := Run(runawayScenario(3, 3), srv.URL, "")
+	res := Run(runawayScenario(3, 3), srv.URL, "", nil)
 	if res.Metrics.Calls != 3 {
 		t.Fatalf("Calls = %d, want 3", res.Metrics.Calls)
 	}
@@ -395,7 +398,7 @@ func TestRunMetricsIgnoreMissingCostHeader(t *testing.T) {
 		return http.StatusPaymentRequired, nil // blocked call: no cost header
 	})
 
-	res := Run(runawayScenario(1, 1), srv.URL, "")
+	res := Run(runawayScenario(1, 1), srv.URL, "", nil)
 	if res.Metrics.BudgetBurnedUSD != 0 {
 		t.Errorf("BudgetBurnedUSD = %v, want 0", res.Metrics.BudgetBurnedUSD)
 	}
@@ -416,7 +419,7 @@ func TestRunMultiStepScenarioAggregatesAcrossSteps(t *testing.T) {
 		Expect: scenario.Expect{Status: http.StatusForbidden, Header: map[string]string{"x-fuse-wardryx": "deny"}},
 	})
 
-	res := Run(s, srv.URL, "")
+	res := Run(s, srv.URL, "", nil)
 	if res.Status != StatusFailed {
 		t.Fatalf("Status = %q, want failed", res.Status)
 	}
@@ -464,7 +467,7 @@ func TestRunApprovalRequiredPassesOnHold(t *testing.T) {
 		}
 	})
 
-	res := Run(approvalRequiredScenario(), srv.URL, "")
+	res := Run(approvalRequiredScenario(), srv.URL, "", nil)
 	if res.Status != StatusPassed {
 		t.Errorf("Status = %q, want passed; findings = %+v", res.Status, res.Findings)
 	}
@@ -481,7 +484,7 @@ func TestRunApprovalRequiredFindingWhenBypassed(t *testing.T) {
 		return http.StatusOK, map[string]string{"x-fuse-wardryx": "allow"}
 	})
 
-	res := Run(approvalRequiredScenario(), srv.URL, "")
+	res := Run(approvalRequiredScenario(), srv.URL, "", nil)
 	if res.Status != StatusFailed {
 		t.Fatalf("Status = %q, want failed", res.Status)
 	}
@@ -529,7 +532,7 @@ func TestRunOnBehalfOfForgedChainPassesOnDeny(t *testing.T) {
 		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
 	})
 
-	res := Run(onBehalfOfForgedChainScenario(), srv.URL, "")
+	res := Run(onBehalfOfForgedChainScenario(), srv.URL, "", nil)
 	if res.Status != StatusPassed {
 		t.Errorf("Status = %q, want passed; findings = %+v", res.Status, res.Findings)
 	}
@@ -547,7 +550,7 @@ func TestRunOnBehalfOfForgedChainFindingWhenBypassed(t *testing.T) {
 		return http.StatusOK, map[string]string{"x-fuse-wardryx": "allow"}
 	})
 
-	res := Run(onBehalfOfForgedChainScenario(), srv.URL, "")
+	res := Run(onBehalfOfForgedChainScenario(), srv.URL, "", nil)
 	if res.Status != StatusFailed {
 		t.Fatalf("Status = %q, want failed", res.Status)
 	}
@@ -559,5 +562,183 @@ func TestRunOnBehalfOfForgedChainFindingWhenBypassed(t *testing.T) {
 	}
 	if res.Findings[0].ExpectStatus != http.StatusForbidden {
 		t.Errorf("Finding.ExpectStatus = %d, want 403", res.Findings[0].ExpectStatus)
+	}
+}
+
+// ------------------------------------------------------------------
+// Expect.Event: async assertions against a downstream, off-path service's
+// own agent-event log (package watch). fakeWatcher is a Watcher test
+// double so these are unit tests of runStep's integration logic, not a
+// second copy of package watch's own real-file-polling tests.
+// ------------------------------------------------------------------
+
+// fakeWatcher is a Watcher whose Wait always returns exactly what the test
+// configures, regardless of the run_id/source/type/timeout it is called
+// with (recorded, so a test can assert on them), so these tests exercise
+// runStep's own logic in isolation from package watch's real polling.
+type fakeWatcher struct {
+	event         event.Event
+	ok            bool
+	err           error
+	calledRunID   string
+	calledSource  string
+	calledType    string
+	calledTimeout time.Duration
+}
+
+func (f *fakeWatcher) Wait(runID, source, eventType string, timeout time.Duration) (event.Event, bool, error) {
+	f.calledRunID, f.calledSource, f.calledType, f.calledTimeout = runID, source, eventType, timeout
+	return f.event, f.ok, f.err
+}
+
+// eventCheckedScenario mirrors wardryxScenario() (a Wardryx tool denial)
+// but additionally expects a downstream reaction: Verdryx recording a
+// quality_drift event for the same run.
+func eventCheckedScenario() scenario.Scenario {
+	return scenario.Scenario{
+		Name:     "wardryx-denied-tool-with-drift-check",
+		Requires: "wardryx",
+		Steps: []scenario.Step{{
+			Name: "shell-exec",
+			Request: scenario.Request{
+				Model:    "claude-haiku",
+				Messages: []scenario.Message{{Role: "user", Content: "run a shell command"}},
+				Tools:    []scenario.Tool{{Name: "shell_exec"}},
+			},
+			Expect: scenario.Expect{
+				Status: http.StatusForbidden,
+				Header: map[string]string{"x-fuse-wardryx": "deny"},
+				Event:  &scenario.EventExpect{Source: "verdryx", Type: "quality_drift", Within: time.Second},
+			},
+		}},
+	}
+}
+
+func TestRunEventCheckPassesWhenObserved(t *testing.T) {
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
+	})
+	w := &fakeWatcher{ok: true, event: event.Event{Source: "verdryx", Type: "quality_drift"}}
+
+	res := Run(eventCheckedScenario(), srv.URL, "", w)
+	if res.Status != StatusPassed {
+		t.Fatalf("Status = %q, want passed; findings = %+v", res.Status, res.Findings)
+	}
+	if w.calledSource != "verdryx" || w.calledType != "quality_drift" {
+		t.Errorf("watcher called with source=%q type=%q, want verdryx/quality_drift", w.calledSource, w.calledType)
+	}
+	if w.calledTimeout != time.Second {
+		t.Errorf("watcher called with timeout=%s, want 1s (from the scenario's Within)", w.calledTimeout)
+	}
+}
+
+func TestRunEventCheckFindingWhenNeverObserved(t *testing.T) {
+	// The synchronous Wardryx deny fires correctly, but the downstream
+	// Verdryx reaction never shows up -- a genuine defensive gap distinct
+	// from a sync mismatch.
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
+	})
+	w := &fakeWatcher{ok: false}
+
+	res := Run(eventCheckedScenario(), srv.URL, "", w)
+	if res.Status != StatusFailed {
+		t.Fatalf("Status = %q, want failed", res.Status)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("Findings = %+v, want 1", res.Findings)
+	}
+	f := res.Findings[0]
+	if f.ExpectEventSource != "verdryx" || f.ExpectEventType != "quality_drift" {
+		t.Errorf("Finding.ExpectEventSource/Type = %q/%q, want verdryx/quality_drift", f.ExpectEventSource, f.ExpectEventType)
+	}
+	// The gateway response itself matched, so GotStatus reflects that, not
+	// a sync mismatch -- this Finding is specifically about the missing
+	// downstream reaction.
+	if f.GotStatus != http.StatusForbidden {
+		t.Errorf("Finding.GotStatus = %d, want 403 (the sync response did match)", f.GotStatus)
+	}
+}
+
+func TestRunEventCheckNotAttemptedWhenSyncMismatch(t *testing.T) {
+	// Wardryx is clearly wired in (it stamps x-fuse-wardryx on this call),
+	// but allows the tool call instead of denying it -- the sync assertion
+	// fails first, so the event watcher must never even be consulted: a
+	// downstream reaction to something that did not happen as expected is
+	// not a separate, meaningful question to ask.
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusOK, map[string]string{"x-fuse-wardryx": "allow"}
+	})
+	w := &fakeWatcher{ok: true, event: event.Event{Source: "verdryx", Type: "quality_drift"}}
+
+	res := Run(eventCheckedScenario(), srv.URL, "", w)
+	if res.Status != StatusFailed {
+		t.Fatalf("Status = %q, want failed", res.Status)
+	}
+	if w.calledSource != "" {
+		t.Errorf("watcher.Wait was called (source=%q), want it never consulted after a sync mismatch", w.calledSource)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].ExpectEventSource != "" {
+		t.Errorf("Findings = %+v, want exactly one plain sync-mismatch finding, not an event-check finding", res.Findings)
+	}
+}
+
+func TestRunEventCheckWatcherErrorIsHardFailure(t *testing.T) {
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
+	})
+	w := &fakeWatcher{err: errors.New("permission denied")}
+
+	res := Run(eventCheckedScenario(), srv.URL, "", w)
+	// A watcher error is a hard failure, same treatment as a transport
+	// error: never confused with StatusSkipped even though this scenario
+	// declares Requires.
+	if res.Status != StatusFailed {
+		t.Fatalf("Status = %q, want failed (a watcher error must never read as skipped-not-configured)", res.Status)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("Findings = %+v, want 1", res.Findings)
+	}
+}
+
+func TestRunEventCheckNilWatcherIsHardFailureNotPanic(t *testing.T) {
+	// Defense in depth: cmd/mockryx validates upfront that every scenario
+	// needing a Watcher has one, but runStep must not panic on a nil
+	// Watcher if that precondition is ever violated -- it should report a
+	// clear Finding instead.
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
+	})
+
+	res := Run(eventCheckedScenario(), srv.URL, "", nil)
+	if res.Status != StatusFailed {
+		t.Fatalf("Status = %q, want failed", res.Status)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].ExpectEventSource != "verdryx" {
+		t.Errorf("Findings = %+v, want one event-check finding naming verdryx", res.Findings)
+	}
+}
+
+func TestRunEventCheckUsesTheWireRunID(t *testing.T) {
+	// The watcher must be asked to correlate on the exact run_id sent as
+	// x-fuse-run-id, the same value the downstream product would have
+	// recorded against -- not a different id runStep might otherwise
+	// generate internally.
+	var gotRunID string
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		gotRunID = r.Header.Get("x-fuse-run-id")
+		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
+	})
+	w := &fakeWatcher{ok: true}
+
+	s := eventCheckedScenario()
+	s.Steps[0].Headers.RunID = "explicit-run-id-123"
+	Run(s, srv.URL, "", w)
+
+	if gotRunID != "explicit-run-id-123" {
+		t.Fatalf("sent run_id = %q, want explicit-run-id-123", gotRunID)
+	}
+	if w.calledRunID != "explicit-run-id-123" {
+		t.Errorf("watcher called with run_id = %q, want it to match the wire run_id exactly", w.calledRunID)
 	}
 }

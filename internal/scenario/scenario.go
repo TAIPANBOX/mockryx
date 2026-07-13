@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -35,9 +36,15 @@ var (
 	ErrStepMissingModel    = errors.New("scenario: step request missing required field: model")
 	ErrStepMissingMessages = errors.New("scenario: step request must have at least one message")
 	ErrStepMissingStatus   = errors.New("scenario: step expect missing required field: status")
+	ErrEventMissingSource  = errors.New("scenario: step expect.event missing required field: source")
+	ErrEventMissingType    = errors.New("scenario: step expect.event missing required field: type")
 	ErrUnsupportedExt      = errors.New("scenario: unsupported file extension (want .yaml, .yml, or .json)")
 	ErrNoScenarios         = errors.New("scenario: no .yaml, .yml, or .json scenario files found")
 )
+
+// DefaultEventWithin is how long a step waits for its declared Expect.Event
+// to appear when Within is zero or negative.
+const DefaultEventWithin = 10 * time.Second
 
 // Scenario is one pre-production fire drill: one or more crafted requests
 // run against a gateway, each with the guardrail response the operator
@@ -137,6 +144,34 @@ type Expect struct {
 	// attempts. Defaults to the step's Repeat (i.e. "by the last attempt")
 	// when zero, negative, or greater than Repeat.
 	WithinRepeats int `yaml:"within_repeats,omitempty" json:"within_repeats,omitempty"`
+	// Event, when set, additionally asserts that a downstream, off-path
+	// service (Verdryx, Idryx, Qryx, or any other agent-event emitter)
+	// recorded a matching reaction within Event.Within, checked only after
+	// the synchronous status/header assertion above has already matched.
+	// See EventExpect and internal/watch.
+	Event *EventExpect `yaml:"event,omitempty" json:"event,omitempty"`
+}
+
+// EventExpect asserts that a downstream, off-path service's own
+// agent-event log (agent-passport SPEC.md Sec 6) recorded a matching
+// event, correlated by the run_id this step itself sent on the wire as
+// x-fuse-run-id. This is how a scenario rehearses a guardrail whose
+// effect is not visible on the gateway's own synchronous response -- e.g.
+// Verdryx recording a quality_drift event, or Idryx's attestation_missing
+// detector firing -- the same way Expect's Status/Header fields rehearse
+// one that is (a Wardryx deny, a Breaker 402).
+type EventExpect struct {
+	// Source is the emitting product's agent-event "source" field, e.g.
+	// "verdryx", "idryx", "qryx" (agent-passport SPEC.md Sec 6.1's source
+	// registry).
+	Source string `yaml:"source" json:"source"`
+	// Type is the agent-event "type" field, e.g. "quality_drift",
+	// "attestation_missing" (SPEC.md Sec 6.2's per-source type registry).
+	Type string `yaml:"type" json:"type"`
+	// Within bounds how long to wait for the event to appear after the
+	// step's synchronous response matched. Defaults to DefaultEventWithin
+	// when zero or negative.
+	Within time.Duration `yaml:"within,omitempty" json:"within,omitempty"`
 }
 
 // ParseYAML decodes and validates one Scenario from YAML.
@@ -260,6 +295,17 @@ func validate(s *Scenario) error {
 		}
 		if step.Expect.WithinRepeats <= 0 || step.Expect.WithinRepeats > step.Repeat {
 			step.Expect.WithinRepeats = step.Repeat
+		}
+		if step.Expect.Event != nil {
+			if step.Expect.Event.Source == "" {
+				return fmt.Errorf("%s: step %s: %w", s.Name, step.Name, ErrEventMissingSource)
+			}
+			if step.Expect.Event.Type == "" {
+				return fmt.Errorf("%s: step %s: %w", s.Name, step.Name, ErrEventMissingType)
+			}
+			if step.Expect.Event.Within <= 0 {
+				step.Expect.Event.Within = DefaultEventWithin
+			}
 		}
 	}
 	return nil

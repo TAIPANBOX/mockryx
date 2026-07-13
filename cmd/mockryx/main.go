@@ -15,6 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/TAIPANBOX/mockryx/internal/config"
@@ -22,6 +23,7 @@ import (
 	"github.com/TAIPANBOX/mockryx/internal/report"
 	"github.com/TAIPANBOX/mockryx/internal/runner"
 	"github.com/TAIPANBOX/mockryx/internal/scenario"
+	"github.com/TAIPANBOX/mockryx/internal/watch"
 )
 
 // version is overridden at build time via -ldflags.
@@ -121,10 +123,12 @@ func runRun(args []string) error {
 		gatewayFlag = fs.String("gateway", "", "gateway base URL to rehearse against (default: $MOCKRYX_GATEWAY)")
 		apiKeyFlag  = fs.String("api-key", "", "x-api-key sent with every crafted request (default: $MOCKRYX_API_KEY)")
 		eventsFlag  = fs.String("events", "", "path to append sim_run/sim_finding/blast_radius_measured events to (default: $MOCKRYX_EVENTS_PATH)")
+		watchFlag   watchPathsFlag
 		format      = fs.String("format", "human", "report format: human|json")
 		savePath    = fs.String("save", "", "also write the JSON report to this path, for 'mockryx report' later")
 		failOnSkip  = fs.Bool("fail-on-skip", false, "treat a scenario skipped as not-configured (its guardrail's signal header was never observed) as a defensive gap; off by default, since a genuine skip is not a gap on its own")
 	)
+	fs.Var(&watchFlag, "watch-events", "a downstream product's own agent-event NDJSON log to poll for expect.event checks (repeatable; default: $MOCKRYX_WATCH_EVENTS, comma-separated)")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: mockryx run [flags] <scenario-dir>\n\nflags:\n")
 		fs.PrintDefaults()
@@ -146,10 +150,29 @@ func runRun(args []string) error {
 	}
 	apiKey := firstNonEmpty(*apiKeyFlag, env.APIKey)
 	eventsPath := firstNonEmpty(*eventsFlag, env.EventsPath)
+	watchPaths := []string(watchFlag)
+	if len(watchPaths) == 0 {
+		watchPaths = env.WatchEvents
+	}
 
 	scenarios, err := scenario.LoadDir(dir)
 	if err != nil {
 		return err
+	}
+
+	// Fail fast, before sending a single request, if a scenario declares
+	// expect.event but no --watch-events/$MOCKRYX_WATCH_EVENTS was given:
+	// the alternative is a silent no-op check the operator would only
+	// discover by noticing a defensive gap that was never actually looked
+	// for, exactly the kind of ambiguity this harness exists to avoid.
+	if len(watchPaths) == 0 {
+		if s, step, ok := firstEventExpectation(scenarios); ok {
+			return fmt.Errorf("scenario %q step %q declares expect.event, but no --watch-events or $MOCKRYX_WATCH_EVENTS was provided", s, step)
+		}
+	}
+	var watcher runner.Watcher
+	if len(watchPaths) > 0 {
+		watcher = &watch.FileWatcher{Paths: watchPaths}
 	}
 
 	emitter, err := events.Open(eventsPath)
@@ -163,19 +186,21 @@ func runRun(args []string) error {
 
 	rep := report.Report{RunID: runID, Gateway: gateway, Generated: time.Now().UTC()}
 	for _, s := range scenarios {
-		res := runner.Run(s, gateway, apiKey)
+		res := runner.Run(s, gateway, apiKey, watcher)
 		rep.Results = append(rep.Results, res)
 		for _, f := range res.Findings {
 			_ = emitter.SimFinding(events.SimFindingInput{
-				RunID:        runID,
-				Scenario:     f.Scenario,
-				Step:         f.Step,
-				Attempt:      f.Attempt,
-				ExpectStatus: f.ExpectStatus,
-				ExpectHeader: f.ExpectHeader,
-				GotStatus:    f.GotStatus,
-				GotHeaders:   f.GotHeaders,
-				Detail:       f.Detail,
+				RunID:             runID,
+				Scenario:          f.Scenario,
+				Step:              f.Step,
+				Attempt:           f.Attempt,
+				ExpectStatus:      f.ExpectStatus,
+				ExpectHeader:      f.ExpectHeader,
+				GotStatus:         f.GotStatus,
+				GotHeaders:        f.GotHeaders,
+				Detail:            f.Detail,
+				ExpectEventSource: f.ExpectEventSource,
+				ExpectEventType:   f.ExpectEventType,
 			})
 		}
 		_ = emitter.BlastRadiusMeasured(runID, s.Name, res.Metrics.Calls, res.Metrics.BudgetBurnedUSD)
@@ -300,4 +325,30 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// watchPathsFlag implements flag.Value for a repeatable --watch-events
+// flag: each occurrence appends one path, matching the --load source:path
+// repeatable-flag pattern used elsewhere in the stack (e.g. Idryx/Qryx).
+type watchPathsFlag []string
+
+func (f *watchPathsFlag) String() string { return strings.Join(*f, ",") }
+func (f *watchPathsFlag) Set(v string) error {
+	*f = append(*f, v)
+	return nil
+}
+
+// firstEventExpectation returns the first scenario/step that declares
+// Expect.Event, so runRun's upfront --watch-events validation can name a
+// concrete offender in its error rather than just saying "something needs
+// it".
+func firstEventExpectation(scenarios []scenario.Scenario) (scenarioName, stepName string, ok bool) {
+	for _, s := range scenarios {
+		for _, step := range s.Steps {
+			if step.Expect.Event != nil {
+				return s.Name, step.Name, true
+			}
+		}
+	}
+	return "", "", false
 }

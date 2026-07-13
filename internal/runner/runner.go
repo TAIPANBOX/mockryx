@@ -20,8 +20,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TAIPANBOX/agent-stack-go/event"
 	"github.com/TAIPANBOX/mockryx/internal/scenario"
 )
+
+// Watcher looks for a downstream, off-path service's own agent-event
+// reaction to one step's crafted request, correlated by the run_id sent
+// on the wire as x-fuse-run-id. See package watch's FileWatcher for the
+// concrete, file-polling implementation; this interface exists so this
+// package's own tests can use an in-memory fake instead of real files.
+type Watcher interface {
+	Wait(runID, source, eventType string, timeout time.Duration) (event.Event, bool, error)
+}
 
 // Status is the outcome of running one scenario end to end.
 type Status string
@@ -59,6 +69,14 @@ type Finding struct {
 	GotStatus    int               `json:"got_status"`
 	GotHeaders   map[string]string `json:"got_headers,omitempty"`
 	Detail       string            `json:"detail"`
+	// ExpectEventSource and ExpectEventType are set only when this Finding
+	// stems from a failed Expect.Event check (the synchronous status/
+	// header assertion above already passed, but the downstream reaction
+	// never appeared) -- never together with a synchronous mismatch, so a
+	// reader can tell the two kinds of gap apart at a glance. See package
+	// watch.
+	ExpectEventSource string `json:"expect_event_source,omitempty"`
+	ExpectEventType   string `json:"expect_event_type,omitempty"`
 }
 
 // Metrics is a blast-radius proxy for one scenario: how much the runner
@@ -96,7 +114,12 @@ const httpTimeout = 15 * time.Second
 
 // Run sends s's steps to gatewayURL, in order, and asserts the guardrail
 // response each declares in its Expect block. apiKey, when non-empty, is
-// sent as x-api-key on every request.
+// sent as x-api-key on every request. watcher checks any step's
+// Expect.Event after its synchronous assertion passes; it may be nil only
+// when no step in s declares one -- callers (cmd/mockryx) are expected to
+// validate that upfront across every scenario in a run, before calling Run
+// at all, rather than have Run guess what a nil watcher should mean for one
+// specific step.
 //
 // It returns the scenario's Result. Status is StatusFailed when any step
 // produced a Finding and the gap cannot be attributed to a missing optional
@@ -107,7 +130,7 @@ const httpTimeout = 15 * time.Second
 // feature, not a defensive gap to fix. Those same raw mismatches are never
 // discarded outright, though: they land on SkippedFindings instead, so nothing
 // is silently thrown away.
-func Run(s scenario.Scenario, gatewayURL, apiKey string) Result {
+func Run(s scenario.Scenario, gatewayURL, apiKey string, watcher Watcher) Result {
 	client := &http.Client{Timeout: httpTimeout}
 
 	res := Result{Scenario: s.Name}
@@ -116,13 +139,17 @@ func Run(s scenario.Scenario, gatewayURL, apiKey string) Result {
 	hardFailure := false
 
 	for _, step := range s.Steps {
-		out := runStep(client, gatewayURL, apiKey, s.Requires, step)
+		out := runStep(client, watcher, gatewayURL, apiKey, s.Requires, step)
 		res.Metrics.Calls += out.calls
 		res.Metrics.BudgetBurnedUSD += out.budgetBurnedUSD
 		if out.signalSeen {
 			signalSeen = true
 		}
-		if out.transportError {
+		if out.transportError || out.watcherError {
+			// A watcher read error (e.g. permission denied) is an
+			// operational problem, not a "guardrail absent" situation --
+			// same treatment as a transport error, never confused with
+			// StatusSkipped.
 			hardFailure = true
 		}
 		if out.finding != nil {
@@ -153,6 +180,7 @@ type stepOutcome struct {
 	budgetBurnedUSD float64
 	signalSeen      bool
 	transportError  bool
+	watcherError    bool
 	finding         *Finding
 }
 
@@ -161,10 +189,11 @@ type stepOutcome struct {
 // their state off it, so a fresh run_id per attempt would reset that
 // state and the guardrail could never trip). It stops at the first
 // attempt whose response matches step.Expect: a pass if that happened at
-// or before step.Expect.WithinRepeats, otherwise a Finding for firing too
-// late. If no attempt ever matches, it returns a Finding after step.Repeat
-// attempts.
-func runStep(client *http.Client, gatewayURL, apiKey, requires string, step scenario.Step) stepOutcome {
+// or before step.Expect.WithinRepeats -- and, if step.Expect.Event is set,
+// watcher also observes a matching downstream reaction within Event.Within
+// -- otherwise a Finding for firing too late. If no attempt ever matches,
+// it returns a Finding after step.Repeat attempts.
+func runStep(client *http.Client, watcher Watcher, gatewayURL, apiKey, requires string, step scenario.Step) stepOutcome {
 	var out stepOutcome
 
 	repeat := step.Repeat
@@ -210,6 +239,54 @@ func runStep(client *http.Client, gatewayURL, apiKey, requires string, step scen
 
 		if matches(step.Expect, status, hdr) {
 			if attempt <= deadline {
+				if step.Expect.Event != nil {
+					ev := step.Expect.Event
+					if watcher == nil {
+						out.watcherError = true
+						out.finding = &Finding{
+							Step:              step.Name,
+							Attempt:           attempt,
+							ExpectStatus:      step.Expect.Status,
+							ExpectHeader:      step.Expect.Header,
+							GotStatus:         status,
+							GotHeaders:        flatten(hdr),
+							ExpectEventSource: ev.Source,
+							ExpectEventType:   ev.Type,
+							Detail:            fmt.Sprintf("step declares expect.event (%s/%s) but no Watcher was configured for this run", ev.Source, ev.Type),
+						}
+						return out
+					}
+					_, ok, err := watcher.Wait(headers.RunID, ev.Source, ev.Type, ev.Within)
+					if err != nil {
+						out.watcherError = true
+						out.finding = &Finding{
+							Step:              step.Name,
+							Attempt:           attempt,
+							ExpectStatus:      step.Expect.Status,
+							ExpectHeader:      step.Expect.Header,
+							GotStatus:         status,
+							GotHeaders:        flatten(hdr),
+							ExpectEventSource: ev.Source,
+							ExpectEventType:   ev.Type,
+							Detail:            fmt.Sprintf("watch %s/%s for run %s: %v", ev.Source, ev.Type, headers.RunID, err),
+						}
+						return out
+					}
+					if !ok {
+						out.finding = &Finding{
+							Step:              step.Name,
+							Attempt:           attempt,
+							ExpectStatus:      step.Expect.Status,
+							ExpectHeader:      step.Expect.Header,
+							GotStatus:         status,
+							GotHeaders:        flatten(hdr),
+							ExpectEventSource: ev.Source,
+							ExpectEventType:   ev.Type,
+							Detail:            fmt.Sprintf("gateway response matched, but no %s/%s event observed for run %s within %s", ev.Source, ev.Type, headers.RunID, ev.Within),
+						}
+						return out
+					}
+				}
 				return out
 			}
 			out.finding = &Finding{

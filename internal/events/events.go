@@ -104,25 +104,36 @@ type SimFindingInput struct {
 	GotStatus    int
 	GotHeaders   map[string]string
 	Detail       string
+	// ExpectEventSource and ExpectEventType mirror runner.Finding's fields
+	// of the same name: set only when this finding stems from a failed
+	// Expect.Event check (a downstream reaction never observed), not a
+	// synchronous status/header mismatch.
+	ExpectEventSource string
+	ExpectEventType   string
 }
 
 // SimFinding emits a sim_finding (high) event for one defensive gap: the
 // expected guardrail did not hold.
 func (e *Emitter) SimFinding(in SimFindingInput) error {
+	data := map[string]any{
+		"scenario":      in.Scenario,
+		"step":          in.Step,
+		"attempt":       in.Attempt,
+		"expect_status": in.ExpectStatus,
+		"expect_header": in.ExpectHeader,
+		"got_status":    in.GotStatus,
+		"got_headers":   in.GotHeaders,
+		"detail":        in.Detail,
+	}
+	if in.ExpectEventSource != "" {
+		data["expect_event_source"] = in.ExpectEventSource
+		data["expect_event_type"] = in.ExpectEventType
+	}
 	return e.write(event.Event{
 		Type:     "sim_finding",
 		RunID:    in.RunID,
 		Severity: event.SeverityHigh,
-		Data: map[string]any{
-			"scenario":      in.Scenario,
-			"step":          in.Step,
-			"attempt":       in.Attempt,
-			"expect_status": in.ExpectStatus,
-			"expect_header": in.ExpectHeader,
-			"got_status":    in.GotStatus,
-			"got_headers":   in.GotHeaders,
-			"detail":        in.Detail,
-		},
+		Data:     data,
 	})
 }
 

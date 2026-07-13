@@ -68,6 +68,7 @@ flowchart TB
   TF -->|"outcome-tagged traces"| VX
   MX["Mockryx: pre-prod safety rehearsal"] -->|"hostile scenarios"| TF
   MX ==>|"sim events"| BUS
+  BUS -.->|"watched for async reactions"| MX
   TFP["terraform-provider-taipan"] -->|"budgets + passports as code"| CL
   ASG[["agent-stack-go: shared Go contract"]] -.->|imported by| IDX
   ASG -.->|imported by| WX
@@ -76,9 +77,9 @@ flowchart TB
   SPEC[["agent-passport: the spec"]] -.->|governs| BUS
 ```
 
-- **Consumes**: scenario files describing crafted, hostile requests.
+- **Consumes**: scenario files describing crafted, hostile requests; optionally, the same agent-event NDJSON logs **Verdryx**/**Idryx**/**Qryx** already produce, polled for an async reaction to a scenario.
 - **Produces**: `source: mockryx` findings and events (`sim_run`, `sim_finding`, `blast_radius_measured`), via `agent-stack-go/event.Writer`.
-- **Talks to**: **TokenFuse** (drives its gateway directly with hostile inputs), **Wardryx** (asserts its policy decisions hold under attack); imports **agent-stack-go**.
+- **Talks to**: **TokenFuse** (drives its gateway directly with hostile inputs), **Wardryx** (asserts its policy decisions hold under attack); watches **Verdryx**/**Idryx**/**Qryx**'s own event logs for off-path guardrail reactions; imports **agent-stack-go**.
 
 The full stack is TokenFuse (spend), Wardryx (policy), Engram (memory), Idryx (access), Qryx (crypto), Verdryx (quality), Mockryx (pre-prod), on the shared Agent Passport + agent-event contract (agent-stack-go / agent-passport), configured via terraform-provider-taipan.
 
@@ -106,7 +107,9 @@ Mockryx works in four steps:
    names one or more crafted requests and the guardrail response the
    operator expects back.
 2. **Run** each scenario against a gateway (`internal/runner`): send the
-   crafted request, up to `repeat` times, and assert the `expect` block.
+   crafted request, up to `repeat` times, assert the `expect` block, and, if
+   the scenario declares `expect.event`, watch for a downstream async
+   reaction too (`internal/watch`; see "Async reaction checks" below).
 3. **Report** a `Finding` for every defensive gap: a case where the expected
    guardrail did not hold, distinguished from a scenario whose guardrail
    feature simply is not configured on this gateway (`internal/report`).
@@ -151,6 +154,62 @@ gateway feature, so `runaway-budget` has none) can never be
 transport error (the gateway could not be reached at all) is always a
 `Finding`, regardless of `requires`: being unreachable is never evidence a
 feature is merely turned off.
+
+---
+
+## Async reaction checks
+
+The gateway's own status/header response only covers guardrails that sit
+**in the request path** (TokenFuse, Wardryx). Verdryx, Idryx, and Qryx never
+touch that response: they react **off path**, on their own schedule, and
+record what they did as an agent-event NDJSON envelope (the same format
+`internal/events` uses for mockryx's own telemetry). A scenario can assert
+on that reaction too, with an `expect.event` block:
+
+```yaml
+steps:
+  - name: shell-exec
+    request: { ... }
+    expect:
+      status: 403
+      header:
+        x-fuse-wardryx: deny
+      event:                      # optional: also require an async reaction
+        source: verdryx           # the event's "source" field
+        type: quality_drift       # the event's "type" field
+        within: 10s                # optional, default 10s: how long to wait
+```
+
+After the synchronous `status`/`header` assertion passes, the runner asks a
+`Watcher` to poll the configured event log(s) for a matching `source`/`type`
+event correlated by `run_id` (the exact `x-fuse-run-id` sent on the wire),
+up to `within`. A synchronous mismatch is never followed by an event check:
+a downstream reaction to a request that did not even trigger the expected
+guardrail is not a separate, meaningful question to ask, so the watcher is
+never consulted in that case. The event check itself has three possible
+outcomes: pass (the event showed up in time), a `Finding` naming the
+expected `source`/`type` (the gateway response matched, but the downstream
+reaction never appeared, a genuine defensive gap), or a hard failure if the
+watcher itself cannot read its configured log (never confused with
+`skipped_not_configured`, the same as a transport error).
+
+Wire up a watcher with one or more paths to poll, either flag or
+environment variable, flag taking precedence:
+
+```sh
+./bin/mockryx run --gateway http://127.0.0.1:8080 \
+  --watch-events /path/to/verdryx-events.ndjson \
+  --watch-events /path/to/idryx-events.ndjson \
+  ./scenarios
+
+# ... or:
+export MOCKRYX_WATCH_EVENTS=/path/to/verdryx-events.ndjson,/path/to/idryx-events.ndjson
+```
+
+If any loaded scenario declares `expect.event` but no watch path was
+configured, `run` fails fast with a usage error (exit `2`) before sending a
+single request: a scenario that cannot possibly be checked as written should
+never be silently downgraded to a partial check.
 
 ---
 
@@ -199,6 +258,11 @@ steps:                          # required, at least one
         x-fuse-wardryx: deny
       within_repeats: 1          # optional, default = repeat: the guardrail must fire by
                                   # at most this many attempts
+      event:                      # optional: also require an async reaction; see
+                                  # "Async reaction checks" above
+        source: verdryx
+        type: quality_drift
+        within: 10s                # optional, default 10s
 ```
 
 `request` marshals directly onto the wire in the Anthropic Messages API
@@ -312,6 +376,14 @@ or unwritable events path never blocks a run.
   (which tolerate a bad line in a machine-generated log), a malformed
   scenario file aborts the whole `LoadDir` call: it is a hand-authored
   safety check, and a silently dropped one is a silently dropped test.
+- **Async reaction checks poll a shared log file, not a per-product HTTP
+  API.** Verdryx and Qryx expose no live HTTP API at all, and polling is the
+  one mechanism that works identically across all three off-path products
+  (`internal/watch`), since Verdryx, Idryx, and Qryx already emit to the
+  same agent-event NDJSON envelope mockryx itself reads and writes
+  (`agent-stack-go/event`). This adds zero new per-product client code or
+  dependencies, at the cost of a fixed poll interval
+  (`watch.PollInterval`, 200ms) rather than a push notification.
 
 ---
 
@@ -327,7 +399,8 @@ or unwritable events path never blocks a run.
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
 - [x] five shipped example scenarios: `runaway-budget` (core Breaker), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` (DLP)
 - [x] `agent-stack-go` v0.1.0 pinned dependency, no local `replace`
-- [ ] Later: additional built-in scenario packs and deeper blast-radius reporting, as new guardrails ship in TokenFuse / Wardryx
+- [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`)
+- [ ] Later: additional built-in scenario packs, as new guardrails ship in TokenFuse / Wardryx
 
 ## License
 
