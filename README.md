@@ -82,6 +82,16 @@ flowchart TB
 
 The full stack is TokenFuse (spend), Wardryx (policy), Engram (memory), Idryx (access), Qryx (crypto), Verdryx (quality), Mockryx (pre-prod), on the shared Agent Passport + agent-event contract (agent-stack-go / agent-passport), configured via terraform-provider-taipan.
 
+## Live infrastructure validation
+
+Before any public launch, Mockryx ran its fire-drills in their intended mode - a real gateway in front of
+a stub provider - on two separate campaigns: 3 scenarios, 3 held, 0 defensive gaps, $0 real spend, both
+times.
+
+![Mockryx pre-prod rehearsal: 3 drills run against a real gateway, 3 held, 0 defensive gaps, $0 real spend](assets/13-mockryx.png)
+
+Full write-up: [`VALIDATION.md`](VALIDATION.md).
+
 ---
 
 ## Guardrail fire drills
