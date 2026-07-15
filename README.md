@@ -117,7 +117,7 @@ Mockryx works in four steps:
    (`internal/events`), via `agent-stack-go/event.Writer`, so a fire drill
    leaves the same kind of audit trail as the guardrails it rehearses.
 
-Three example scenarios ship in `scenarios/`, each rehearsing a different
+Five example scenarios ship in `scenarios/`, each rehearsing a different
 guardrail:
 
 | File | Rehearses | Requires | Expects |
