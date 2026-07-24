@@ -78,7 +78,7 @@ flowchart TB
 ```
 
 - **Consumes**: scenario files describing crafted, hostile requests; optionally, the same agent-event NDJSON logs **Verdryx**/**Idryx**/**Qryx** already produce, polled for an async reaction to a scenario.
-- **Produces**: `source: mockryx` findings and events (`sim_run`, `sim_finding`, `blast_radius_measured`), via `agent-stack-go/event.Writer`.
+- **Produces**: `source: mockryx` findings and events (`sim_run`, `sim_finding`, `blast_radius_measured`), via `agent-stack-go/event.ChainedWriter`.
 - **Talks to**: **TokenFuse** (drives its gateway directly with hostile inputs), **Wardryx** (asserts its policy decisions hold under attack); watches **Verdryx**/**Idryx**/**Qryx**'s own event logs for off-path guardrail reactions; imports **agent-stack-go**.
 
 The full stack is TokenFuse (spend), Wardryx (policy), Engram (memory), Idryx (access), Qryx (crypto), Verdryx (quality), Mockryx (pre-prod), on the shared Agent Passport + agent-event contract (agent-stack-go / agent-passport), configured via terraform-provider-taipan.
@@ -116,8 +116,8 @@ Mockryx works in four steps:
    guardrail did not hold, distinguished from a scenario whose guardrail
    feature simply is not configured on this gateway (`internal/report`).
 4. **Emit** its own findings as agent-governance events
-   (`internal/events`), via `agent-stack-go/event.Writer`, so a fire drill
-   leaves the same kind of audit trail as the guardrails it rehearses.
+   (`internal/events`), via `agent-stack-go/event.ChainedWriter`, so a fire
+   drill leaves the same kind of audit trail as the guardrails it rehearses.
 
 Five example scenarios ship in `scenarios/`, each rehearsing a different
 guardrail:
@@ -336,7 +336,9 @@ pipeline to fix, not a security finding to triage.
 
 When `MOCKRYX_EVENTS_PATH` (or `--events`) is set, `run` appends its own
 telemetry as `taipanbox.dev/agent-event/v0.2` NDJSON envelopes, via
-`agent-stack-go/event.Writer`, with `source: "mockryx"`:
+`agent-stack-go/event.ChainedWriter`, with `source: "mockryx"`. Events carry
+the SPEC §6.5 `prev_hash` chain; verify a stream with `agent-conform -chain
+<file>`.
 
 | Type | Severity | When |
 | --- | --- | --- |
