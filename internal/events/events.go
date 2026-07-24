@@ -1,7 +1,7 @@
 // Package events emits mockryx's own telemetry, sim_run, sim_finding, and
 // blast_radius_measured, as agent-event NDJSON envelopes via
-// agent-stack-go/event.Writer, so a fire drill leaves the same kind of
-// audit trail as the guardrails it rehearses.
+// agent-stack-go/event.ChainedWriter, so a fire drill leaves the same kind
+// of audit trail as the guardrails it rehearses.
 //
 // Emitting events is opt-in and best-effort: mockryx is a pre-production
 // safety rehearsal, not a system of record, so a missing or unwritable
@@ -31,7 +31,7 @@ const HarnessID = "agent://mockryx.local/harness"
 // Emitter writes mockryx's own telemetry. The zero value, and an Emitter
 // returned by Open(""), are both safe no-ops.
 type Emitter struct {
-	w *event.Writer
+	w *event.ChainedWriter
 }
 
 // Open returns an Emitter that appends events to path as NDJSON. An empty
@@ -41,7 +41,7 @@ func Open(path string) (*Emitter, error) {
 	if path == "" {
 		return &Emitter{}, nil
 	}
-	w, err := event.NewWriter(path)
+	w, err := event.NewChainedWriter(path)
 	if err != nil {
 		return nil, fmt.Errorf("events: %w", err)
 	}
@@ -55,6 +55,27 @@ func (e *Emitter) Close() error {
 		return nil
 	}
 	return e.w.Close()
+}
+
+// ResumedFrom reports the chain hash this Emitter's writer resumed from at
+// Open, or "" when it started a fresh chain (no writer, an empty path, or
+// an empty/malformed file tail). Safe to call on a nil receiver.
+func (e *Emitter) ResumedFrom() string {
+	if e == nil || e.w == nil {
+		return ""
+	}
+	return e.w.ResumedFrom()
+}
+
+// ChainPreview returns a short, log-safe preview of a SPEC 6.5 chain hash
+// ("sha256:" plus its first 12 hex characters): enough for cmd/mockryx to
+// note a resume across restarts without printing the full digest.
+func ChainPreview(hash string) string {
+	const n = len(event.ChainHashPrefix) + 12
+	if len(hash) <= n {
+		return hash
+	}
+	return hash[:n]
 }
 
 // write fills in the envelope fields every mockryx event shares (schema,

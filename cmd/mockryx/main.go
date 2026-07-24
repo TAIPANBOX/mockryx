@@ -180,6 +180,13 @@ func runRun(args []string) error {
 		return err
 	}
 	defer emitter.Close()
+	if eventsPath != "" {
+		if resumed := emitter.ResumedFrom(); resumed != "" {
+			fmt.Fprintf(os.Stderr, "mockryx: resumed the event chain in %s from %s\n", eventsPath, events.ChainPreview(resumed))
+		} else {
+			fmt.Fprintf(os.Stderr, "mockryx: starting a fresh event chain in %s\n", eventsPath)
+		}
+	}
 
 	runID := fmt.Sprintf("mockryx-%d", time.Now().UTC().UnixNano())
 	_ = emitter.SimRun(runID, "start", len(scenarios), 0, gateway)
