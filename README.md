@@ -276,7 +276,7 @@ shape the TokenFuse gateway proxies, so a scenario reads like a real call.
 
 Requires Go 1.26+. Mockryx depends on
 [`github.com/TAIPANBOX/agent-stack-go`](https://github.com/TAIPANBOX/agent-stack-go)
-at its tagged `v0.1.0` release, resolved from the module proxy like any other
+at its tagged `v0.4.0` release, resolved from the module proxy like any other
 Go dependency: no local `replace`, no sibling checkout needed.
 
 ```sh
@@ -370,7 +370,7 @@ or unwritable events path never blocks a run.
   per step invocation, so unrelated steps and separate `mockryx run`
   invocations never collide.
 - **`agent-stack-go` is a tagged dependency.** `go.mod` requires
-  `github.com/TAIPANBOX/agent-stack-go v0.1.0` straight from the module
+  `github.com/TAIPANBOX/agent-stack-go v0.4.0` straight from the module
   proxy: no `replace`, no local checkout. `.github/workflows/ci.yml` does a
   single `actions/checkout` per job, the same as any other Go module.
 - **YAML is the one dependency beyond `agent-stack-go`.** `gopkg.in/yaml.v3`
@@ -399,10 +399,10 @@ or unwritable events path never blocks a run.
 - [x] runner: sends crafted requests up to `repeat` times, asserts `expect` (status + header), `within_repeats`
 - [x] `Finding` vs. `skipped_not_configured` (the `requires` + `x-fuse-<requires>` header convention)
 - [x] human + JSON report rendering, save/load (`mockryx report`)
-- [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.Writer`, opt-in (`MOCKRYX_EVENTS_PATH`)
+- [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.ChainedWriter` (SPEC 6.5 prev_hash chain), opt-in (`MOCKRYX_EVENTS_PATH`)
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
 - [x] five shipped example scenarios: `runaway-budget` (core Breaker), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` (DLP)
-- [x] `agent-stack-go` v0.1.0 pinned dependency, no local `replace`
+- [x] `agent-stack-go` v0.4.0 pinned dependency, no local `replace`
 - [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`)
 - [ ] Later: additional built-in scenario packs, as new guardrails ship in TokenFuse / Wardryx
 
