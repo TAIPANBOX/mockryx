@@ -95,6 +95,26 @@ times.
 
 Full write-up: [`VALIDATION.md`](VALIDATION.md).
 
+
+
+### Running it on a Kubernetes cluster
+
+The whole stack was deployed as a five-node k3s cluster on Hetzner, AWS and GCP
+between 25 and 27 July 2026 (six clusters, all destroyed afterwards). The
+manifests, the traps and the evidence are public in
+[stack-k8s](https://github.com/TAIPANBOX/stack-k8s). Mockryx is not a pod. The console **executes** it to fire drills at
+the gateway, so it ships inside the console image. There is also a `drills`
+CronJob in the manifests, and it is deliberately **not scheduled**: a drill
+spends real budget to prove the breaker trips, so it is opt-in
+(`kubectl create job --from=cronjob/drills drills-now`). A safety rehearsal
+that silently bills you every night is a bad default, and defaults are the
+part people never read.
+
+To be clear about scope: those runs verified the deployment shape and the
+service coming up correctly on three clouds. They did not fire drills as part of the runs. The three hostile
+scenarios in this file, fired twice at a real gateway with zero gaps and zero
+real spend, remain the evidence for the harness itself.
+
 ---
 
 ## Guardrail fire drills
