@@ -44,6 +44,14 @@ production. Mockryx does not discover targets, does not scan, does not carry
 an offensive payload, and does not reach outside the one URL it is given.
 Every scenario it ships with says so again, at the top of the file.
 
+<div align="center">
+
+<img src="assets/diagram.svg" alt="Mockryx architecture: hostile scenarios are driven at a pre-production TokenFuse gateway in mock-upstream mode, the guardrail verdict gates CI on the exit code, and sim events land on the agent-event bus" width="960">
+
+<sub>The same service as its room on <a href="https://it-rat.com/services/mockryx.html">it-rat.com</a> draws it, where the diagram sits next to a simulation you can scrub back and forth.</sub>
+
+</div>
+
 ---
 
 ## Where this fits in the stack
