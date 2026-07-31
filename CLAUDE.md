@@ -53,6 +53,7 @@ staticcheck ./...
 go test -race ./...
 go build ./...
 ./scripts/deps-tight.sh
+./scripts/selftest.sh
 ```
 
 CI additionally runs `govulncheck ./...`. Run it before touching `go.mod`.
@@ -71,9 +72,9 @@ an absent invariant.
    this. *(test: `TestExitCode` in `cmd/mockryx/main_test.go`)*
 2. **A drill that finds nothing must be distinguishable from a drill that did
    not run.** Zero findings is only meaningful if the same harness demonstrably
-   finds something when a guardrail is genuinely absent. Any new scenario needs
-   a companion case proving it can fail; otherwise a green run reports silence
-   as safety. *(not enforced)*
+   reports a gap when a guardrail is genuinely absent. A scenario that cannot
+   see its own guardrail missing is a comment with a name.
+   *(gate: `scripts/selftest.sh`)*
 3. **Dependencies stay at two: `agent-stack-go` and `gopkg.in/yaml.v3`.** This
    tool runs inside other people's CI, where every transitive dependency is a
    supply-chain question they did not ask for.
@@ -92,13 +93,32 @@ an absent invariant.
 
 This list is debt, and it is here to stay visible rather than to be tidy.
 
-**Held by this file alone: invariants 2, 4, 5 and 6.**
+**Held by this file alone: invariants 4, 5 and 6.**
 
-Invariant 2 is the important one, and it is the same class as "zero violations
-is worth exactly as much as the ability to see one". A `-selftest` mode that
-runs every scenario against a deliberately unguarded stub, and fails if any
-scenario reports clean, would turn it into a gate. That is the highest-value
-piece of work in this repo.
+Invariant 2 now has `scripts/selftest.sh`. It stands up a gateway that enforces
+nothing and runs every shipped scenario against it twice:
+
+- **silent**, returning 200 with no `x-fuse-*` header at all. A scenario
+  declaring `requires:` must come back `skipped_not_configured`, because the
+  feature it rehearses is genuinely absent and calling that a failure would be a
+  false alarm. A scenario without `requires:` must come back `failed`.
+- **signalling**, returning 200 but stamping the signal headers, so the
+  guardrails read as configured while holding nothing. Every scenario must come
+  back `failed`.
+
+The second shape is the dangerous one and the reason the script exists: a
+guardrail that announces itself and does not enforce is worse than one that is
+missing, because the console shows it green.
+
+The assertion in both runs is that **no scenario passes**. Verified by breaking
+first, twice: a scenario expecting the 200 an open gateway already returns is
+caught in both runs, with and without a `requires:` declaration. All five
+shipped scenarios pass the check today, which is the first evidence this repo
+has that its own drills can see anything.
+
+What it does not cover: whether a scenario rehearses the guardrail it claims to.
+A scenario could expect the right status for the wrong reason, and nothing here
+would notice.
 
 Invariant 6 is partly checkable: assert no scenario file carries a hardcoded
 non-loopback host. Worth writing.
