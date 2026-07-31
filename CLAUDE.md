@@ -87,13 +87,18 @@ an absent invariant.
    than redefining an existing one. *(not enforced)*
 6. **Drills target the operator's own gateway, always.** No scenario may
    default to, or make it easy to point at, an endpoint the operator did not
-   configure explicitly. *(not enforced)*
+   configure explicitly. The way this holds is stronger than "no scenario
+   hardcodes a host": **the scenario format has no field a target could go in.**
+   The address comes from `--gateway` or `$MOCKRYX_GATEWAY` and nowhere else, so
+   a scenario file is physically incapable of pointing this tool at somebody
+   else's system. *(test: `TestScenarioFormatCannotCarryATarget`,
+   `TestShippedScenariosNameNoTarget`)*
 
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
 
-**Held by this file alone: invariants 4, 5 and 6.**
+**Held by this file alone: invariants 4 and 5.**
 
 Invariant 2 now has `scripts/selftest.sh`. It stands up a gateway that enforces
 nothing and runs every shipped scenario against it twice:
@@ -120,8 +125,20 @@ What it does not cover: whether a scenario rehearses the guardrail it claims to.
 A scenario could expect the right status for the wrong reason, and nothing here
 would notice.
 
-Invariant 6 is partly checkable: assert no scenario file carries a hardcoded
-non-loopback host. Worth writing.
+Invariant 6 is now two tests, and the first is the interesting one. Rather than
+grepping scenario files for hosts, it walks the scenario struct with reflection
+and fails if any field name or yaml tag looks like it could carry a target.
+That defends the property at the level it actually holds: the format cannot
+express a target, so no scenario can carry one.
+
+The way that property would be lost is a convenience, which is why it needs a
+test rather than a note. Somebody adds `base_url:` so the examples are
+self-contained, and mockryx quietly becomes a tool that carries its own targets
+around. Verified by breaking: adding `BaseURL` to the format is caught and
+named. The second test parses the shipped scenarios and looks for an outbound
+endpoint in any VALUE, so comments discussing the gateway do not false-positive,
+and it is there in case a field is ever added for a legitimate reason and then
+misused.
 
 ## Standing rule
 
