@@ -76,12 +76,15 @@ flowchart TB
   TF -->|"outcome-tagged traces"| VX
   MX["Mockryx: pre-prod safety rehearsal"] -->|"hostile scenarios"| TF
   MX ==>|"sim events"| BUS
+  BUS ==> HX["heraldyx: reads the log, mails you"]
+  HX -->|"one mail, a view and never an action"| OPS["your mailbox"]
   BUS -.->|"watched for async reactions"| MX
   TFP["terraform-provider-taipan"] -->|"budgets + passports as code"| CL
   ASG[["agent-stack-go: shared Go contract"]] -.->|imported by| IDX
   ASG -.->|imported by| WX
   ASG -.->|imported by| MX
   ASG -.->|imported by| TFP
+  ASG -.->|imported by| HX
   SPEC[["agent-passport: the spec"]] -.->|governs| BUS
 ```
 
