@@ -42,6 +42,16 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 # Event logs and any per-service store are mounted, never baked.
 VOLUME ["/var/lib/stack"]
 COPY --from=build /out/service /usr/local/bin/service
+# The scenarios ship WITH the tool. `mockryx run` requires a scenario
+# directory, and an image without one is a binary that cannot do the only thing
+# it exists for: measured on a live cluster 2026-08-03, where the stack's
+# weekly drill CronJob had never once run, failing every time with "run
+# requires exactly one scenario directory".
+#
+# Twenty kilobytes of YAML, in an image that is three megabytes. An operator
+# who wants their own set still passes a path and a mount; this is the default,
+# not a lock.
+COPY scenarios/ /scenarios/
 # 65532 is distroless's `nonroot` uid. Numeric on purpose: a kubelet with
 # runAsNonRoot cannot verify a NAME and refuses the container outright.
 USER 65532:65532
