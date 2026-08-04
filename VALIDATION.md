@@ -27,6 +27,14 @@ gateway itself.
 - This is the harness working as designed - a regression in any of these three guardrails would fail CI
   before it ever reached production.
 
+## What this does not cover
+
+This page is a record of two campaigns, and it stays true about the moment it describes rather than
+about the repository today. Five scenarios ship now: `on-behalf-of-forged-chain` and
+`approval-required` were written after these runs and have never been fired at a real gateway. What
+holds those two is `scripts/selftest.sh`, which proves a scenario can SEE its guardrail missing, not
+that the guardrail holds. Anyone citing "0 gaps" should cite it for the three named above.
+
 ## Method
 
 Disposable Hetzner VPS boxes (deleted after each run), Mockryx driving a real gateway configured with a
