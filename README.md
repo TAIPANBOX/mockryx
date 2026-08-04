@@ -101,7 +101,11 @@ Run the whole open stack locally with one command via [**stack-up**](https://git
 
 Before any public launch, Mockryx ran its fire-drills in their intended mode - a real gateway in front of
 a stub provider - on two separate campaigns: 3 scenarios, 3 held, 0 defensive gaps, $0 real spend, both
-times.
+times. Those three were `runaway-budget`, `wardryx-denied-tool` and `dlp-secret-leak`. Five ship today:
+`on-behalf-of-forged-chain` and `approval-required` were written after those campaigns and have never been
+fired at a real gateway. What holds them is `scripts/selftest.sh`, which proves a scenario can SEE its
+guardrail missing, not that the guardrail holds. Those are different claims and only the first one covers
+all five.
 
 ![Mockryx pre-prod rehearsal: 3 drills run against a real gateway, 3 held, 0 defensive gaps, $0 real spend](assets/13-mockryx.png)
 
@@ -123,8 +127,8 @@ that silently bills you every night is a bad default, and defaults are the
 part people never read.
 
 To be clear about scope: those runs verified the deployment shape and the
-service coming up correctly on three clouds. They did not fire drills as part of the runs. The three hostile
-scenarios in this file, fired twice at a real gateway with zero gaps and zero
+service coming up correctly on three clouds. They did not fire drills as part of the runs. The three
+scenarios named above, fired twice at a real gateway with zero gaps and zero
 real spend, remain the evidence for the harness itself.
 
 ---
@@ -132,7 +136,7 @@ real spend, remain the evidence for the harness itself.
 ## Guardrail fire drills
 
 <div align="center">
-<img src="docs/scenarios.png" alt="Three guardrail fire drills: runaway budget against the Breaker, denied tool use against Wardryx, and a secret-leak prompt against DLP, each expected to FIRE (pass), with a GAP meaning a Finding was recorded" width="900">
+<img src="docs/scenarios.png" alt="Five guardrail fire drills: runaway budget against the Breaker, denied tool use, a forged delegation chain and a missing approval against Wardryx, and a secret-leak prompt against DLP. Each card names what the drill asserts must happen, a GAP means a Finding was recorded, and an amber dot marks the two scenarios that have never been fired at a real gateway" width="900">
 </div>
 
 Mockryx works in four steps:

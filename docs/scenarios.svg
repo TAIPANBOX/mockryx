@@ -17,60 +17,102 @@
 </defs><rect x="0" y="0" width="1280" height="720" rx="0" ry="0" fill="url(#bg)"/>
 <rect x="0" y="0" width="1280" height="720" fill="url(#grid)" opacity="0.5"/>
 <rect x="0" y="0" width="1280" height="4" fill="url(#accent)"/>
-<text x="1252" y="698" font-size="12.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="end">github.com/TAIPANBOX/mockryx</text>
+<text x="1252" y="708" font-size="12.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="end">github.com/TAIPANBOX/mockryx</text>
 <text x="40" y="56" font-size="28" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="start">Guardrail fire drills</text>
 <text x="40" y="84" font-size="15" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">Each scenario replays a crafted, hostile request against the operator's own gateway and asserts the guardrail response.</text>
 <line x1="40" y1="100" x2="1240" y2="100" stroke="#222b38" stroke-width="1"/>
 <circle cx="56" cy="122" r="6" fill="#1a212c" stroke="#3fb950" stroke-width="2"/>
-<text x="70" y="127" font-size="12.5" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="600" text-anchor="start">FIRES: guardrail held (pass)</text>
-<circle cx="320" cy="122" r="6" fill="#1a212c" stroke="#ff6b63" stroke-width="2"/>
-<text x="334" y="127" font-size="12.5" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="600" text-anchor="start">GAP: Finding recorded (fail)</text>
-<rect x="40" y="250" width="250" height="220" rx="14" ry="14" fill="#141a23" stroke="#283341" stroke-width="1" filter="url(#soft)"/>
-<text x="165" y="294" font-size="16" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="middle">Scenario file</text>
-<text x="165" y="318" font-size="16" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="middle">YAML / JSON</text>
-<circle cx="119" cy="376" r="9" fill="#1a212c" stroke="#2dd4bf" stroke-width="2"/>
-<circle cx="165" cy="392" r="9" fill="#1a212c" stroke="#4493f8" stroke-width="2"/>
-<circle cx="211" cy="376" r="9" fill="#1a212c" stroke="#e3b341" stroke-width="2"/>
-<circle cx="141" cy="422" r="9" fill="#1a212c" stroke="#2dd4bf" stroke-width="2"/>
-<circle cx="193" cy="424" r="9" fill="#1a212c" stroke="#4493f8" stroke-width="2"/>
-<text x="165" y="452" font-size="11" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="middle">name · requires · steps · expect</text>
-<text x="165" y="470" font-size="10.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="middle">internal/scenario.LoadDir</text>
-<rect x="330" y="300" width="170" height="120" rx="14" ry="14" fill="#1a212c" stroke="#2dd4bf" stroke-width="1.6" filter="url(#glow)"/>
-<text x="415" y="346" font-size="18" fill="#2dd4bf" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="700" text-anchor="middle">mockryx</text>
-<text x="415" y="370" font-size="13.5" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="600" text-anchor="middle">scenario runner</text>
-<text x="415" y="390" font-size="10.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="middle">sends -&gt; asserts expect</text>
-<line x1="290" y1="360" x2="323" y2="360" stroke="#2dd4bf" stroke-width="2.2"/>
-<path d="M 330 360 l -9 -5 l 0 10 z" fill="#2dd4bf"/>
-<rect x="560" y="150" width="330" height="150" rx="14" ry="14" fill="#1b2331" stroke="#283341" stroke-width="1" filter="url(#soft)"/>
-<rect x="560" y="150" width="6" height="150" rx="3" ry="3" fill="#3fb950" stroke="#283341" stroke-width="1"/>
-<circle cx="594" cy="188" r="13" fill="none" stroke="#3fb950" stroke-width="2"/>
-<circle cx="594" cy="188" r="4" fill="#3fb950"/>
-<text x="618" y="186" font-size="17" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="start">Runaway budget</text>
-<text x="618" y="208" font-size="10" fill="#3fb950" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="700" text-anchor="start" letter-spacing="1.5">FIRES</text>
-<line x1="584" y1="226" x2="866" y2="226" stroke="#222b38" stroke-width="1"/>
-<text x="584" y="250" font-size="13" fill="#e6edf3" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="600" text-anchor="start">Budget Breaker · core, always-on</text>
-<text x="584" y="272" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">repeat 8 · budget $0.001</text>
-<text x="584" y="292" font-size="11.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="start">expect: 402 within 8 attempts</text>
-<path d="M 500 360 C 527.0 360, 527.0 225, 548 225" fill="none" stroke="#3fb950" stroke-width="1.8" opacity="0.55"/><path d="M 554 225 l -9 -5 l 0 10 z" fill="#3fb950" opacity="0.55"/>
-<rect x="560" y="318" width="330" height="150" rx="14" ry="14" fill="#1b2331" stroke="#283341" stroke-width="1" filter="url(#soft)"/>
-<rect x="560" y="318" width="6" height="150" rx="3" ry="3" fill="#3fb950" stroke="#283341" stroke-width="1"/>
-<circle cx="594" cy="356" r="13" fill="none" stroke="#3fb950" stroke-width="2"/>
-<circle cx="594" cy="356" r="4" fill="#3fb950"/>
-<text x="618" y="354" font-size="17" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="start">Denied tool use</text>
-<text x="618" y="376" font-size="10" fill="#3fb950" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="700" text-anchor="start" letter-spacing="1.5">FIRES</text>
-<line x1="584" y1="394" x2="866" y2="394" stroke="#222b38" stroke-width="1"/>
-<text x="584" y="418" font-size="13" fill="#e6edf3" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="600" text-anchor="start">Wardryx policy PDP · requires: wardryx</text>
-<text x="584" y="440" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">asks to run shell_exec</text>
-<text x="584" y="460" font-size="11.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="start">expect: 403 + x-fuse-wardryx: deny</text>
-<path d="M 500 360 C 527.0 360, 527.0 393, 548 393" fill="none" stroke="#3fb950" stroke-width="1.8" opacity="0.55"/><path d="M 554 393 l -9 -5 l 0 10 z" fill="#3fb950" opacity="0.55"/>
-<rect x="560" y="486" width="330" height="150" rx="14" ry="14" fill="#1b2331" stroke="#283341" stroke-width="1" filter="url(#soft)"/>
-<rect x="560" y="486" width="6" height="150" rx="3" ry="3" fill="#3fb950" stroke="#283341" stroke-width="1"/>
-<circle cx="594" cy="524" r="13" fill="none" stroke="#3fb950" stroke-width="2"/>
-<circle cx="594" cy="524" r="4" fill="#3fb950"/>
-<text x="618" y="522" font-size="17" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="start">Secret-leak prompt</text>
-<text x="618" y="544" font-size="10" fill="#3fb950" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="700" text-anchor="start" letter-spacing="1.5">FIRES</text>
-<line x1="584" y1="562" x2="866" y2="562" stroke="#222b38" stroke-width="1"/>
-<text x="584" y="586" font-size="13" fill="#e6edf3" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="600" text-anchor="start">DLP · requires: dlp</text>
-<text x="584" y="608" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">AWS placeholder key AKIA...EXAMPLE</text>
-<text x="584" y="628" font-size="11.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="start">expect: 403 before any model call</text>
-<path d="M 500 360 C 527.0 360, 527.0 561, 548 561" fill="none" stroke="#3fb950" stroke-width="1.8" opacity="0.55"/><path d="M 554 561 l -9 -5 l 0 10 z" fill="#3fb950" opacity="0.55"/></svg>
+<text x="70" y="127" font-size="12.5" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="600" text-anchor="start">FIRES: what the drill asserts must happen</text>
+<circle cx="380" cy="122" r="6" fill="#1a212c" stroke="#ff6b63" stroke-width="2"/>
+<text x="394" y="127" font-size="12.5" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="600" text-anchor="start">GAP: it did not, and a Finding is recorded</text>
+<circle cx="700" cy="122" r="6" fill="#e3b341"/>
+<text x="714" y="127" font-size="12.5" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="600" text-anchor="start">never fired at a real gateway</text>
+<rect x="40" y="290" width="250" height="240" rx="14" ry="14" fill="#141a23" stroke="#283341" stroke-width="1" filter="url(#soft)"/>
+<text x="165" y="334" font-size="16" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="middle">Scenario file</text>
+<text x="165" y="358" font-size="16" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="middle">YAML / JSON</text>
+<circle cx="119" cy="416" r="9" fill="#1a212c" stroke="#2dd4bf" stroke-width="2"/>
+<circle cx="165" cy="432" r="9" fill="#1a212c" stroke="#4493f8" stroke-width="2"/>
+<circle cx="211" cy="416" r="9" fill="#1a212c" stroke="#e3b341" stroke-width="2"/>
+<circle cx="141" cy="462" r="9" fill="#1a212c" stroke="#2dd4bf" stroke-width="2"/>
+<circle cx="193" cy="464" r="9" fill="#1a212c" stroke="#4493f8" stroke-width="2"/>
+<text x="165" y="496" font-size="11" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="middle">name · requires · steps · expect</text>
+<text x="165" y="514" font-size="10.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="middle">internal/scenario.LoadDir</text>
+<rect x="330" y="354" width="170" height="120" rx="14" ry="14" fill="#1a212c" stroke="#2dd4bf" stroke-width="1.6" filter="url(#glow)"/>
+<text x="415" y="400" font-size="18" fill="#2dd4bf" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="700" text-anchor="middle">mockryx</text>
+<text x="415" y="424" font-size="13.5" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="600" text-anchor="middle">scenario runner</text>
+<text x="415" y="444" font-size="10.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="middle">sends -&gt; asserts expect</text>
+<line x1="290" y1="414" x2="323" y2="414" stroke="#2dd4bf" stroke-width="2.2"/>
+<path d="M 330 414 l -9 -5 l 0 10 z" fill="#2dd4bf"/>
+<rect x="560" y="140" width="330" height="100" rx="14" ry="14" fill="#1b2331" stroke="#283341" stroke-width="1" filter="url(#soft)"/>
+<rect x="560" y="140" width="6" height="100" rx="3" ry="3" fill="#3fb950" stroke="#283341" stroke-width="1"/>
+<circle cx="594" cy="172" r="12" fill="none" stroke="#3fb950" stroke-width="2"/>
+<circle cx="594" cy="172" r="3.5" fill="#3fb950"/>
+<text x="618" y="178" font-size="16" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="start">Runaway budget</text>
+<text x="866" y="178" font-size="10" fill="#3fb950" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="700" text-anchor="end" letter-spacing="1.5">FIRES</text>
+<line x1="584" y1="192" x2="866" y2="192" stroke="#222b38" stroke-width="1"/>
+<text x="584" y="212" font-size="12.5" fill="#e6edf3" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="600" text-anchor="start">Budget Breaker · core, always-on</text>
+<text x="584" y="230" font-size="11.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="start">expect: 402 within 8 attempts</text>
+<path d="M 500 414 C 527 414, 527 172, 548 172" fill="none" stroke="#3fb950" stroke-width="1.8" opacity="0.55"/><path d="M 554 172 l -9 -5 l 0 10 z" fill="#3fb950" opacity="0.55"/>
+<rect x="560" y="252" width="330" height="100" rx="14" ry="14" fill="#1b2331" stroke="#283341" stroke-width="1" filter="url(#soft)"/>
+<rect x="560" y="252" width="6" height="100" rx="3" ry="3" fill="#3fb950" stroke="#283341" stroke-width="1"/>
+<circle cx="594" cy="284" r="12" fill="none" stroke="#3fb950" stroke-width="2"/>
+<circle cx="594" cy="284" r="3.5" fill="#3fb950"/>
+<text x="618" y="290" font-size="16" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="start">Denied tool use</text>
+<text x="866" y="290" font-size="10" fill="#3fb950" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="700" text-anchor="end" letter-spacing="1.5">FIRES</text>
+<line x1="584" y1="304" x2="866" y2="304" stroke="#222b38" stroke-width="1"/>
+<text x="584" y="324" font-size="12.5" fill="#e6edf3" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="600" text-anchor="start">Wardryx PDP · requires: wardryx</text>
+<text x="584" y="342" font-size="11.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="start">expect: 403 + x-fuse-wardryx: deny</text>
+<path d="M 500 414 C 527 414, 527 284, 548 284" fill="none" stroke="#3fb950" stroke-width="1.8" opacity="0.55"/><path d="M 554 284 l -9 -5 l 0 10 z" fill="#3fb950" opacity="0.55"/>
+<rect x="560" y="364" width="330" height="100" rx="14" ry="14" fill="#1b2331" stroke="#283341" stroke-width="1" filter="url(#soft)"/>
+<rect x="560" y="364" width="6" height="100" rx="3" ry="3" fill="#3fb950" stroke="#283341" stroke-width="1"/>
+<circle cx="594" cy="396" r="12" fill="none" stroke="#3fb950" stroke-width="2"/>
+<circle cx="594" cy="396" r="3.5" fill="#3fb950"/>
+<text x="618" y="402" font-size="16" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="start">Forged delegation</text>
+<text x="848" y="402" font-size="10" fill="#3fb950" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="700" text-anchor="end" letter-spacing="1.5">FIRES</text>
+<circle cx="862" cy="398" r="5" fill="#e3b341"/>
+<line x1="584" y1="416" x2="866" y2="416" stroke="#222b38" stroke-width="1"/>
+<text x="584" y="436" font-size="12.5" fill="#e6edf3" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="600" text-anchor="start">Wardryx PDP · requires: wardryx</text>
+<text x="584" y="454" font-size="11.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="start">cyclic on_behalf_of chain -&gt; 403</text>
+<path d="M 500 414 C 527 414, 527 396, 548 396" fill="none" stroke="#3fb950" stroke-width="1.8" opacity="0.55"/><path d="M 554 396 l -9 -5 l 0 10 z" fill="#3fb950" opacity="0.55"/>
+<rect x="560" y="476" width="330" height="100" rx="14" ry="14" fill="#1b2331" stroke="#283341" stroke-width="1" filter="url(#soft)"/>
+<rect x="560" y="476" width="6" height="100" rx="3" ry="3" fill="#3fb950" stroke="#283341" stroke-width="1"/>
+<circle cx="594" cy="508" r="12" fill="none" stroke="#3fb950" stroke-width="2"/>
+<circle cx="594" cy="508" r="3.5" fill="#3fb950"/>
+<text x="618" y="514" font-size="16" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="start">Approval required</text>
+<text x="848" y="514" font-size="10" fill="#3fb950" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="700" text-anchor="end" letter-spacing="1.5">FIRES</text>
+<circle cx="862" cy="510" r="5" fill="#e3b341"/>
+<line x1="584" y1="528" x2="866" y2="528" stroke="#222b38" stroke-width="1"/>
+<text x="584" y="548" font-size="12.5" fill="#e6edf3" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="600" text-anchor="start">Wardryx PDP · requires: wardryx</text>
+<text x="584" y="566" font-size="11.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="start">expect: 403 + x-fuse-wardryx: hold</text>
+<path d="M 500 414 C 527 414, 527 508, 548 508" fill="none" stroke="#3fb950" stroke-width="1.8" opacity="0.55"/><path d="M 554 508 l -9 -5 l 0 10 z" fill="#3fb950" opacity="0.55"/>
+<rect x="560" y="588" width="330" height="100" rx="14" ry="14" fill="#1b2331" stroke="#283341" stroke-width="1" filter="url(#soft)"/>
+<rect x="560" y="588" width="6" height="100" rx="3" ry="3" fill="#3fb950" stroke="#283341" stroke-width="1"/>
+<circle cx="594" cy="620" r="12" fill="none" stroke="#3fb950" stroke-width="2"/>
+<circle cx="594" cy="620" r="3.5" fill="#3fb950"/>
+<text x="618" y="626" font-size="16" fill="#e6edf3" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="700" text-anchor="start">Secret-leak prompt</text>
+<text x="866" y="626" font-size="10" fill="#3fb950" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="700" text-anchor="end" letter-spacing="1.5">FIRES</text>
+<line x1="584" y1="640" x2="866" y2="640" stroke="#222b38" stroke-width="1"/>
+<text x="584" y="660" font-size="12.5" fill="#e6edf3" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="600" text-anchor="start">DLP inspection · requires: dlp</text>
+<text x="584" y="678" font-size="11.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="400" text-anchor="start">AKIA...EXAMPLE -&gt; 403, no model call</text>
+<path d="M 500 414 C 527 414, 527 620, 548 620" fill="none" stroke="#3fb950" stroke-width="1.8" opacity="0.55"/><path d="M 554 620 l -9 -5 l 0 10 z" fill="#3fb950" opacity="0.55"/>
+<text x="950" y="178" font-size="12.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="600" text-anchor="start">Two campaigns, a real gateway</text>
+<text x="950" y="200" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">in front of a stub provider:</text>
+<text x="950" y="222" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">3 fired, 3 held, 0 gaps, $0 spent.</text>
+<line x1="950" y1="244" x2="1240" y2="244" stroke="#222b38" stroke-width="1"/>
+<text x="950" y="268" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">Forged delegation and approval</text>
+<text x="950" y="288" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">required were written after those</text>
+<text x="950" y="308" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">campaigns and have not been fired</text>
+<text x="950" y="328" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">at a real gateway yet.</text>
+<line x1="950" y1="352" x2="1240" y2="352" stroke="#222b38" stroke-width="1"/>
+<text x="950" y="378" font-size="12.5" fill="#69788b" font-family="'SF Mono','JetBrains Mono','Fira Code',Menlo,Consolas,'Liberation Mono',monospace" font-weight="600" text-anchor="start">What every card shares</text>
+<circle cx="958" cy="404" r="4" fill="#2dd4bf"/>
+<text x="974" y="409" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">one gateway URL, passed on the</text>
+<text x="974" y="427" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">command line, never in the file</text>
+<circle cx="958" cy="455" r="4" fill="#2dd4bf"/>
+<text x="974" y="460" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">a miss is a Finding, unless the</text>
+<text x="974" y="478" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">x-fuse-&lt;requires&gt; header never</text>
+<text x="974" y="496" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">appeared at all</text>
+<circle cx="958" cy="524" r="4" fill="#2dd4bf"/>
+<text x="974" y="529" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">exit 0 clean, 1 a real gap,</text>
+<text x="974" y="547" font-size="12" fill="#9aa7b8" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-weight="400" text-anchor="start">2 a broken harness</text>
+</svg>
