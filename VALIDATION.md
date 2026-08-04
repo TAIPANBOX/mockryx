@@ -27,6 +27,28 @@ gateway itself.
 - This is the harness working as designed - a regression in any of these three guardrails would fail CI
   before it ever reached production.
 
+## The same guardrails, once, against a real provider
+
+2026-08-04, on a three-node k3s cluster in AWS with the gateway pointed at the real
+`api.anthropic.com`. Not a Mockryx run: the drills were exercised by hand through the gateway,
+because Mockryx was not deployed on that cluster. Recorded here anyway, because it answers the
+question this page's stub-provider caveat leaves open.
+
+**The breaker holds with real money behind it.** A `claude-opus-4-1` request for 2000 tokens
+against a budget of `0.000001` USD: HTTP 402, `spent_usd: 0.0`, and no `request_id` in the body,
+so the provider never saw it.
+
+**The DLP guardrail holds for what it is, and that is narrower than the drill implies.** A whole
+`AKIAIOSFODNN7EXAMPLE` was refused before the provider saw it. The 40-character AWS secret key
+**alone passed**, and the same access key **split across two phrases passed**. `dlp-secret-leak`
+exercises the contiguous case, which is the honest one to claim: the scanner catches carelessness
+and does not stop concealment.
+
+**The PEP holds while its own machine dies.** With 60 agents mid-flight, the node hosting Wardryx
+was killed outright: 1640 of 2400 calls refused, **zero reached the provider unchecked**, refusals
+in 319 ms, full recovery 55 s. Repeated with a hypervisor-level `stop --force`: 1980 refused, again
+zero through. This is `wardryx-denied-tool`'s property under a failure mode no drill simulates.
+
 ## What this does not cover
 
 This page is a record of two campaigns, and it stays true about the moment it describes rather than
