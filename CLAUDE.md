@@ -122,6 +122,22 @@ an absent invariant.
    repo's own scar: the release workflow was green on two tags while publishing
    no binary at all, so an absent subject must fail rather than pass quietly.
 
+8. **The release asset names carry no version, and that is a contract with
+   the outside world rather than a style choice.** it-rat.com links straight to
+   `releases/latest/download/<name>`, an address that resolves only while the
+   name is stable, so putting a version back into `out=` in `release.yml` turns
+   every download link on that site into a 404 at the next tag. Nothing in CI
+   would say so; the person who finds out is somebody trying to install this.
+   The version is not lost, it moves into the binary, where `-X main.version`
+   already puts it and where `mockryx version` reads it back. That is the harder of
+   the two places to fake: anything between us and a reader can rename a file,
+   and nothing between us and a reader can restamp the bytes.
+   *(gate: `scripts/reproducible-build.sh`, which reads `out=` out of the
+   workflow and refuses if it contains VERSION, and refuses just as loudly if it
+   finds no asset name at all, because a check that goes green once its subject
+   has vanished is worse than no check. Verified by breaking: putting the version
+   back fails it in all four repositories that share this shape.)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

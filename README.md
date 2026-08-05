@@ -319,11 +319,25 @@ pre-production rehearsal you point at your own gateway once, before a release,
 and asking somebody to install a Go toolchain or adopt a container runtime to
 test their own service is a barrier with nothing behind it.
 
+**The asset names carry no version**, so `releases/latest/download/<name>` is a
+permanent address for the current build. You never look up a version number,
+and a link to one of these does not rot.
+
 ```sh
-tar -xzf mockryx_v*_$(uname -s | tr A-Z a-z)_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz
+P=$(uname -s | tr A-Z a-z)_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+U=https://github.com/TAIPANBOX/mockryx/releases/latest/download
+
+curl -fsSLO $U/mockryx_$P.tar.gz
+curl -fsSLO $U/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
-cd mockryx_v*/ && ./mockryx version
+
+tar -xzf mockryx_$P.tar.gz
+cd mockryx_$P/ && ./mockryx version
 ```
+
+The version is still there, in the binary rather than in the filename:
+`mockryx version` prints the tag it was built from. That is the harder of the
+two places to fake, since anything between us and you can rename a file.
 
 The `scenarios/` directory travels inside the archive. A rehearsal tool whose
 scenarios have to be fetched separately is one somebody runs with whatever they
@@ -342,7 +356,8 @@ own production path and believe what it reports.
 ```sh
 # ours, unpacked ANYWHERE EXCEPT the checkout (see the warning below)
 mkdir -p /tmp/verify && cd /tmp/verify
-tar -xzf ~/Downloads/mockryx_v0.2.0_darwin_arm64.tar.gz
+curl -fsSLO https://github.com/TAIPANBOX/mockryx/releases/latest/download/mockryx_darwin_arm64.tar.gz
+tar -xzf mockryx_darwin_arm64.tar.gz
 
 # yours, from a clean tree
 cd /path/to/your/mockryx
@@ -351,7 +366,7 @@ git status --porcelain      # must print nothing at all
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath \
   -ldflags "-s -w -X main.version=v0.2.0" -o /tmp/verify/mine ./cmd/mockryx
 
-sha256sum /tmp/verify/mine /tmp/verify/mockryx_v0.2.0_darwin_arm64/mockryx
+sha256sum /tmp/verify/mine /tmp/verify/mockryx_darwin_arm64/mockryx
 # macOS ships shasum -a 256 rather than sha256sum, and this example builds for
 # darwin, so that is probably the one you want
 ```
