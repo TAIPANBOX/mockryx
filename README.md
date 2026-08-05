@@ -102,7 +102,7 @@ flowchart TB
 - **Produces**: `source: mockryx` findings and events (`sim_run`, `sim_finding`, `blast_radius_measured`), via `agent-stack-go/event.ChainedWriter`.
 - **Talks to**: **TokenFuse** (drives its gateway directly with hostile inputs), **Wardryx** (asserts its policy decisions hold under attack); watches **Verdryx**/**Idryx**/**Qryx**'s own event logs for off-path guardrail reactions; imports **agent-stack-go**.
 
-The full stack is TokenFuse (spend), Wardryx (policy), Engram (memory), Idryx (access), Qryx (crypto), Verdryx (quality), Mockryx (pre-prod), on the shared Agent Passport + agent-event contract (agent-stack-go / agent-passport), configured via terraform-provider-taipan.
+The full stack is TokenFuse (spend), Wardryx (policy), Engram (memory), Idryx (access), Qryx (crypto), Verdryx (quality), Mockryx (pre-prod) and heraldyx (the mail out), on the shared Agent Passport + agent-event contract (agent-stack-go / agent-passport), configured via terraform-provider-taipan and driven from Genaryx, the console over all of it. Trailryx, the record plane, is built and not wired into this yet.
 
 Run the whole open stack locally with one command via [**stack-up**](https://github.com/TAIPANBOX/stack-up); the stack's home on the web is [**it-rat.com**](https://it-rat.com).
 
