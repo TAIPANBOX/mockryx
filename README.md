@@ -6,6 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)
+![tests](https://img.shields.io/badge/tests-89-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-1%20(mvp)-success.svg)
 
