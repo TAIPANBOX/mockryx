@@ -66,7 +66,18 @@ jobs:
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
             GOOS="${target%/*}"; GOARCH="${target#*/}"
             ext=""; [ "$GOOS" = "windows" ] && ext=".exe"
-            out="mockryx_${VERSION}_${GOOS}_${GOARCH}"
+            # The asset NAME carries no version, deliberately, and putting one back
+            # breaks something outside this repository. it-rat.com links straight to
+            # https://github.com/TAIPANBOX/mockryx/releases/latest/download/<this name>,
+            # which resolves only while the name is stable. A version here turns
+            # every download link on that site into a 404 at the next tag, silently,
+            # and the person who finds out is somebody trying to install this.
+            #
+            # The version is not lost. It is stamped INTO the binary by
+            # -X main.version below, which is where `mockryx version` reads it from
+            # and the harder of the two places to fake: a filename can be renamed by
+            # anyone between us and the reader.
+            out="mockryx_${GOOS}_${GOARCH}"
             CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
               go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
               -o "dist/${out}/mockryx${ext}" ./cmd/mockryx

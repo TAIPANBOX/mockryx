@@ -148,6 +148,35 @@ fi
 
 echo "release flags: CGO_ENABLED=0, -trimpath, -s -w all present in $workflow"
 
+asset_names="$(grep -E '^[[:space:]]*out=' "$workflow" || true)"
+
+if [ -z "$asset_names" ]; then
+	echo "FAIL: no release asset name (out=...) found in $workflow."
+	echo
+	echo "This cannot tell whether the published files are named stably if it"
+	echo "cannot find where they are named. A missing subject is not a pass."
+	exit 1
+fi
+
+case "$asset_names" in
+*VERSION*)
+	echo "FAIL: the release asset name in $workflow carries the version:"
+	echo "  $(echo "$asset_names" | sed 's/^[[:space:]]*//')"
+	echo
+	echo "That name is a contract with something outside this repository."
+	echo "it-rat.com links to /releases/latest/download/<name>, and that URL"
+	echo "resolves only while the name is stable, so a version here turns every"
+	echo "download link on the site into a 404 at the next tag. Nothing in CI"
+	echo "would say so. The person who finds out is trying to install this."
+	echo
+	echo "The version belongs in the binary, where -X main.version already puts"
+	echo "it and where the command reads it back."
+	exit 1
+	;;
+esac
+
+echo "release assets: named without a version, so /releases/latest/download holds"
+
 # ---------------------------------------------------------------------------
 # Half two: the same source in two directories produces the same bytes.
 # ---------------------------------------------------------------------------
