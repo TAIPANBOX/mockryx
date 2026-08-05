@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Enforces invariant 9 of CLAUDE.md: a released binary can be rebuilt, by
+# Enforces invariant 7 of CLAUDE.md: a released binary can be rebuilt, by
 # somebody who does not trust us, from the tag it claims to come from.
 #
 # WHY THIS IS WORTH A GATE RATHER THAN A SENTENCE
@@ -23,10 +23,21 @@
 #
 # WHAT THIS CHECKS, AND WHAT IT CANNOT
 #
-# It builds the same target twice from two directories of DIFFERENT LENGTHS and
-# refuses if a byte differs. Different lengths on purpose: two paths of the same
-# length would hide a length-dependent embedding, which is the exact failure
-# -trimpath exists to prevent.
+# Two halves, and until 2026-08-05 only the second existed.
+#
+# FIRST, the flags in this script and the flags in the release workflow are
+# COMPARED rather than assumed to agree. The sentence above said they must stay
+# identical and nothing held it, so this file could keep all three, keep passing,
+# and say nothing while release.yml lost one. That is not a hypothetical shape of
+# failure: it is the one the paragraph above describes, and the gate was on the
+# wrong side of it. Losing a flag HERE is caught by the build below, because
+# without -trimpath the two directories stop matching. Losing it THERE was caught
+# by nobody.
+#
+# SECOND, it builds the same target twice from two directories of DIFFERENT
+# LENGTHS and refuses if a byte differs. Different lengths on purpose: two paths
+# of the same length would hide a length-dependent embedding, which is the exact
+# failure -trimpath exists to prevent.
 #
 # It proves PATH INDEPENDENCE, which is not the same statement as "this matches
 # the release", and the two are worth keeping apart. It builds from `git
@@ -68,6 +79,78 @@ cd "$(git rev-parse --show-toplevel)"
 
 BIN="${1:-mockryx}"
 VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+
+# ---------------------------------------------------------------------------
+# Half one: the release workflow builds with the same three flags this does.
+# ---------------------------------------------------------------------------
+
+workflow=".github/workflows/release.yml"
+
+if [ ! -f "$workflow" ]; then
+	echo "FAIL: $workflow is missing."
+	echo
+	echo "This gate cannot compare its flags against a release that has no"
+	echo "workflow, and a missing subject is not a pass."
+	exit 1
+fi
+
+# Join backslash continuations before looking at anything. The build command in
+# the workflow spans four physical lines, and a check that reads one line at a
+# time would be judging a command it cannot see whole. That mistake has been
+# made here before, twice, in stack-single's hook.
+build_cmds="$(awk '
+	{
+		line = $0
+		sub(/^[ \t]+/, "", line)
+		if (cont != "") { line = cont " " line }
+		if (line ~ /\\$/) { sub(/[ \t]*\\$/, "", line); cont = line; next }
+		cont = ""
+		print line
+	}
+	END { if (cont != "") print cont }
+' "$workflow" | grep 'go build' || true)"
+
+if [ -z "$build_cmds" ]; then
+	echo "FAIL: no 'go build' command found in $workflow."
+	echo
+	echo "Either the release stopped building a binary, or this check stopped"
+	echo "being able to find the one it builds. Both are reasons to stop. A"
+	echo "check that goes green when its subject has vanished is worse than no"
+	echo "check, because it teaches everyone to trust an answer it is no longer"
+	echo "computing. This repo has the scar: the release workflow was green on"
+	echo "two tags while publishing no binary at all."
+	exit 1
+fi
+
+missing=()
+case "$build_cmds" in *"CGO_ENABLED=0"*) ;; *) missing+=("CGO_ENABLED=0") ;; esac
+case "$build_cmds" in *"-trimpath"*) ;; *) missing+=("-trimpath") ;; esac
+case "$build_cmds" in *"-s -w"*) ;; *) missing+=("-s -w") ;; esac
+
+if [ ${#missing[@]} -ne 0 ]; then
+	echo "FAIL: $workflow builds the release without: ${missing[*]}"
+	echo
+	echo "The command it runs:"
+	echo "  $build_cmds"
+	echo
+	echo "This script builds with all three, so it would keep passing while the"
+	echo "published binaries stopped matching a rebuild. The only person who"
+	echo "would ever find out is the one who tried to verify us, which is the"
+	echo "person this whole property exists for."
+	echo
+	echo "Put the flag back on the go build command in $workflow. Setting it"
+	echo "somewhere else, a job-level env for instance, also fails here on"
+	echo "purpose: the two files are compared by reading them side by side, and"
+	echo "a flag that is not where the comparison looks is a flag nobody is"
+	echo "holding."
+	exit 1
+fi
+
+echo "release flags: CGO_ENABLED=0, -trimpath, -s -w all present in $workflow"
+
+# ---------------------------------------------------------------------------
+# Half two: the same source in two directories produces the same bytes.
+# ---------------------------------------------------------------------------
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT INT TERM
