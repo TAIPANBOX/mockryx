@@ -79,6 +79,14 @@ flowchart TB
   MX ==>|"sim events"| BUS
   BUS ==> HX["heraldyx: reads the log, mails you"]
   HX -->|"one mail, a view and never an action"| OPS["your mailbox"]
+  YOU(["you, in a browser over your own tunnel"]) --> GX[["Genaryx: the console over all of it"]]
+  GX -->|"signed commands: the kill, an approval, a policy"| CL
+  GX -->|"signed commands"| WX
+  GX -.->|"reads it"| IDX
+  GX -.->|"reads it"| QX
+  GX -.->|"reads it"| VX
+  GX -.->|"reads it"| MX
+  GX -.->|"reads it"| ENG
   BUS -.->|"watched for async reactions"| MX
   TFP["terraform-provider-taipan"] -->|"budgets + passports as code"| CL
   ASG[["agent-stack-go: shared Go contract"]] -.->|imported by| IDX
