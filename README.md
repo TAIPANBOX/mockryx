@@ -340,22 +340,33 @@ most places, because you are being asked to point an adversarial tool at your
 own production path and believe what it reports.
 
 ```sh
-# ours, from the release page, unpacked
-tar -xzf mockryx_v0.2.0_darwin_arm64.tar.gz
+# ours, unpacked ANYWHERE EXCEPT the checkout (see the warning below)
+mkdir -p /tmp/verify && cd /tmp/verify
+tar -xzf ~/Downloads/mockryx_v0.2.0_darwin_arm64.tar.gz
 
-# yours
+# yours, from a clean tree
+cd /path/to/your/mockryx
 git checkout v0.2.0
+git status --porcelain      # must print nothing at all
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath \
-  -ldflags "-s -w -X main.version=v0.2.0" -o mine ./cmd/mockryx
+  -ldflags "-s -w -X main.version=v0.2.0" -o /tmp/verify/mine ./cmd/mockryx
 
-sha256sum mine mockryx_v0.2.0_darwin_arm64/mockryx
+sha256sum /tmp/verify/mine /tmp/verify/mockryx_v0.2.0_darwin_arm64/mockryx
 # macOS ships shasum -a 256 rather than sha256sum, and this example builds for
 # darwin, so that is probably the one you want
 ```
 
-Two identical digests. Measured on 5 August 2026 against the real `v0.2.0`
-assets, cross-compiled on an Ubuntu runner and rebuilt on macOS:
+Two identical digests. Measured on 5 August 2026 from a fresh clone against the
+real `v0.2.0` assets, cross-compiled on an Ubuntu runner and rebuilt on macOS:
 `1cce1b7967dbbfe7278747f7e74aba76280f671969ea460bfed0214403afadf6`.
+
+**Build from a clean tree, and do not unpack our archive inside it.** Go stamps
+`vcs.modified` into the binary, and **one untracked file anywhere in the
+checkout flips it to true**, which changes the bytes. The release is built from
+a clean CI checkout, so it carries `vcs.modified=false`. Unpacking the download
+into the repository before building is enough to break the comparison on its
+own. `git status --porcelain` is in the recipe for that reason and is not
+decoration.
 
 **Compare the binaries, not the archives.** `SHA256SUMS` on the release page
 lists the `.tar.gz` and `.zip` files, and it answers a different question: did
@@ -379,11 +390,12 @@ against real published artifacts in the sibling repositories qryx and idryx on
 5 August 2026, each rebuilding to its release byte for byte from a different
 host OS.
 
-**Check it out, do not export it.** Building from a `git archive` extraction or
-a detached `git worktree` leaves Go unable to read the VCS, so it records the
-module as `(devel)` rather than the tag. That binary genuinely differs from the
-release, and the difference looks enormous because a version string one byte
-shorter shifts everything after it. It is one field, not a different program.
+**The same trap has a second door.** Building from a `git archive` extraction or
+a detached `git worktree` leaves Go unable to read the VCS at all, so it records
+the module as `(devel)` rather than the tag. Both doors lead to a binary that
+legitimately differs from the release, and the difference looks enormous because
+a version string one byte shorter shifts everything after it. It is one field,
+not a different program.
 
 ### Build from source
 
