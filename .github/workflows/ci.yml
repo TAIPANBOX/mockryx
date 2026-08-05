@@ -31,6 +31,13 @@ jobs:
       - name: the drills can see a missing guardrail
         run: ./scripts/selftest.sh
 
+      # You are asked to point an adversarial tool at your own production path
+      # and believe the result, so the tool itself is what a careful reader pins
+      # down first. CGO_ENABLED=0, -trimpath and -s -w hold that, here and in
+      # release.yml, and any one going missing breaks it in silence.
+      - name: a release can be rebuilt byte for byte
+        run: ./scripts/reproducible-build.sh
+
   security:
     runs-on: ubuntu-latest
     steps:

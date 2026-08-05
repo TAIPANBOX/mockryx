@@ -310,6 +310,58 @@ shape the TokenFuse gateway proxies, so a scenario reads like a real call.
 
 ## Install / build
 
+**A prebuilt binary, with the scenarios beside it.** Linux, macOS and Windows,
+x86_64 and arm64, on the
+[Releases page](https://github.com/TAIPANBOX/mockryx/releases) for every `v*`
+tag, with a `SHA256SUMS`. This is the artifact most people want: mockryx is a
+pre-production rehearsal you point at your own gateway once, before a release,
+and asking somebody to install a Go toolchain or adopt a container runtime to
+test their own service is a barrier with nothing behind it.
+
+```sh
+tar -xzf mockryx_v*_$(uname -s | tr A-Z a-z)_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz
+sha256sum -c SHA256SUMS --ignore-missing
+cd mockryx_v*/ && ./mockryx version
+```
+
+The `scenarios/` directory travels inside the archive. A rehearsal tool whose
+scenarios have to be fetched separately is one somebody runs with whatever they
+already had lying around.
+
+An image is published from the same tag for deployments that want one:
+`ghcr.io/taipanbox/mockryx:<tag>`, immutable, never `:latest`.
+
+### The two paths give the same bytes, and you can check that
+
+Downloading the binary and building it yourself are not a choice between trust
+and effort: **they produce an identical file**. That matters here more than in
+most places, because you are being asked to point an adversarial tool at your
+own production path and believe what it reports.
+
+```sh
+git checkout v0.1.1
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath \
+  -ldflags "-s -w -X main.version=v0.1.1" -o mine ./cmd/mockryx
+sha256sum mine        # compare with SHA256SUMS from the release page
+```
+
+Three flags make that work, `CGO_ENABLED=0`, `-trimpath` and `-s -w`, and losing
+any one would break it **silently**: the build would still succeed and only
+somebody trying to verify us would find out. CI therefore builds the same source
+in two directories of different lengths on every push and refuses if a byte
+differs (`scripts/reproducible-build.sh`). The same three flags were measured
+against real published artifacts in the sibling repositories qryx and idryx on
+5 August 2026, each rebuilding to its release byte for byte from a different
+host OS.
+
+**Check it out, do not export it.** Building from a `git archive` extraction or
+a detached `git worktree` leaves Go unable to read the VCS, so it records the
+module as `(devel)` rather than the tag. That binary genuinely differs from the
+release, and the difference looks enormous because a version string one byte
+shorter shifts everything after it. It is one field, not a different program.
+
+### Build from source
+
 Requires Go 1.26+. Mockryx depends on
 [`github.com/TAIPANBOX/agent-stack-go`](https://github.com/TAIPANBOX/agent-stack-go)
 at its tagged `v0.4.0` release, resolved from the module proxy like any other

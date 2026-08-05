@@ -94,6 +94,21 @@ an absent invariant.
    else's system. *(test: `TestScenarioFormatCannotCarryATarget`,
    `TestShippedScenariosNameNoTarget`)*
 
+7. **A published binary can be rebuilt, byte for byte, by the operator being
+   asked to trust it.** Mockryx points an adversarial tool at somebody's own
+   production path and asks them to believe the result, so the tool is what a
+   careful reader pins down first, and "the source is open" is not an answer to
+   them: it always was. Three flags hold it, `CGO_ENABLED=0`, `-trimpath` and
+   `-s -w`, and they must stay identical in `scripts/reproducible-build.sh` and
+   `.github/workflows/release.yml`. Losing one breaks the property in
+   **silence**: the build still succeeds, the binaries stop matching, and the
+   only person who finds out is the one trying to verify us.
+   *(gate: `scripts/reproducible-build.sh`, which builds the same source in two
+   directories of deliberately different lengths and refuses if a byte differs;
+   verified by deleting `-trimpath`, which fails it. The same three flags were
+   measured against real published artifacts in qryx and idryx on 2026-08-05,
+   each rebuilding to its release byte for byte from a different host OS.)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
