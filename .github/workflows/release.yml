@@ -1,4 +1,16 @@
-# Build and publish the container image to GitHub Container Registry.
+# Publish a release: binaries for people, an image for clusters.
+#
+# Both come from the SAME tag, so "which version am I running" has one answer
+# whether it came from a tarball or from a registry.
+#
+# The binaries were missing until 2026-08-05, and the shape of what mockryx IS
+# is why that mattered. It is a pre-production rehearsal: you point it at YOUR
+# gateway, before release, and it runs hostile scenarios to see whether your
+# guardrails hold. That is a laptop and a CI runner, not a plane that lives in a
+# cluster. Shipping only an image asked somebody to adopt a container runtime in
+# order to test their own service once.
+#
+# The image stays for the deployments that do want it.
 #
 #   ghcr.io/<owner>/mockryx:v0.1.0      what a deployment pins
 #   ghcr.io/<owner>/mockryx:sha-abc123  what a bisect points at
@@ -19,12 +31,69 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
+  # Binaries first: this is the artifact most people who touch mockryx want, and
+  # a failure here should stop the release rather than land after the image is
+  # already public.
+  binaries:
+    name: binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          # Matches `toolchain` in go.mod. setup-go v6 pins GOTOOLCHAIN=local,
+          # so a disagreement here stops being a silent extra download and
+          # becomes a hard failure.
+          go-version: "1.26.5"
+          cache: true
+
+      # The three flags are what let somebody rebuild a published binary and
+      # check it against ours: CGO off so the output does not depend on a host
+      # toolchain, -trimpath so the build directory is not embedded, -s -w so no
+      # build id carries a path back in. They are the same three
+      # `scripts/reproducible-build.sh` checks on every push, and the two must
+      # stay identical: losing one breaks verification in SILENCE, because the
+      # build still succeeds and only the person verifying us finds out.
+      - name: build matrix
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            GOOS="${target%/*}"; GOARCH="${target#*/}"
+            ext=""; [ "$GOOS" = "windows" ] && ext=".exe"
+            out="mockryx_${VERSION}_${GOOS}_${GOARCH}"
+            CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
+              go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "dist/${out}/mockryx${ext}" ./cmd/mockryx
+            # The scenarios travel with the binary. A rehearsal tool whose
+            # scenarios have to be fetched separately is one somebody runs with
+            # whatever they already had lying around.
+            cp -r scenarios "dist/${out}/scenarios"
+            if [ "$GOOS" = "windows" ]; then
+              (cd dist && zip -qr "${out}.zip" "${out}")
+            else
+              tar -C dist -czf "dist/${out}.tar.gz" "${out}"
+            fi
+            rm -r "dist/${out}"
+          done
+          (cd dist && sha256sum * > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "mockryx ${GITHUB_REF_NAME}" --generate-notes
+
   image:
     name: build + push
+    needs: binaries
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
