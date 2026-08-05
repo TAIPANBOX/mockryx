@@ -348,9 +348,13 @@ sha256sum mine        # compare with SHA256SUMS from the release page
 
 Three flags make that work, `CGO_ENABLED=0`, `-trimpath` and `-s -w`, and losing
 any one would break it **silently**: the build would still succeed and only
-somebody trying to verify us would find out. CI therefore builds the same source
-in two directories of different lengths on every push and refuses if a byte
-differs (`scripts/reproducible-build.sh`). The same three flags were measured
+somebody trying to verify us would find out. So on every push CI does two things
+(`scripts/reproducible-build.sh`): it reads the build command out of the release
+workflow and refuses if any of the three flags is missing there, and it builds
+the same source in two directories of different lengths and refuses if a byte
+differs. The first of those exists because the flags have to agree in two files,
+and until 5 August 2026 only one of the two was ever checked. The same three
+flags were measured
 against real published artifacts in the sibling repositories qryx and idryx on
 5 August 2026, each rebuilding to its release byte for byte from a different
 host OS.
