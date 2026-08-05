@@ -340,9 +340,9 @@ most places, because you are being asked to point an adversarial tool at your
 own production path and believe what it reports.
 
 ```sh
-git checkout v0.1.1
+git checkout v0.2.0
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath \
-  -ldflags "-s -w -X main.version=v0.1.1" -o mine ./cmd/mockryx
+  -ldflags "-s -w -X main.version=v0.2.0" -o mine ./cmd/mockryx
 sha256sum mine        # compare with SHA256SUMS from the release page
 ```
 
