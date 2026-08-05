@@ -28,6 +28,13 @@ jobs:
         run: go build ./...
       - name: dependency list is pinned
         run: ./scripts/deps-tight.sh
+
+      # A number in a README is a claim with no owner: it is right the day it
+      # is written and the suite grows in a commit that never opens the file.
+      # On 2026-08-05 four of seven such figures on it-rat.com were found
+      # stale against these repositories. This is the same check at the source.
+      - name: the README's numbers are true
+        run: ./scripts/readme-numbers.sh
       - name: the drills can see a missing guardrail
         run: ./scripts/selftest.sh
 
