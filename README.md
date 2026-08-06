@@ -207,6 +207,18 @@ transport error (the gateway could not be reached at all) is always a
 `Finding`, regardless of `requires`: being unreachable is never evidence a
 feature is merely turned off.
 
+**`--fail-on-skip`** overrides the default for an operator who knows better.
+A `skipped_not_configured` result and a badly-broken guardrail look
+identical from the wire alone, that ambiguity is exactly why `Skipped`
+exists and is not a gap by default, but an operator who knows the guardrail
+*must* be present (it is enabled in their own gateway config, say) can pass
+`--fail-on-skip` to promote every such scenario's dropped mismatches into
+real `Finding`s, which then count toward the process exit code the same as
+an ordinary gap. The report still honestly shows `skipped_not_configured` as
+the status mockryx actually observed; `--fail-on-skip` only changes whether
+that status is allowed to pass CI, not what happened. Off by default, so a
+plain `mockryx run` is unaffected either way.
+
 ---
 
 ## Async reaction checks
@@ -372,21 +384,41 @@ mkdir -p /tmp/verify && cd /tmp/verify
 curl -fsSLO https://github.com/TAIPANBOX/mockryx/releases/latest/download/mockryx_darwin_arm64.tar.gz
 tar -xzf mockryx_darwin_arm64.tar.gz
 
+# The asset name carries no version (see below), so read the version back out
+# of the binary you just downloaded rather than typing a tag: that is what
+# keeps this recipe correct at the NEXT release too, not only the one current
+# when this was written.
+V=$(./mockryx_darwin_arm64/mockryx version | awk '{print $2}')
+echo "verifying $V"
+
 # yours, from a clean tree
 cd /path/to/your/mockryx
-git checkout v0.2.0
+git checkout "$V"
 git status --porcelain      # must print nothing at all
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath \
-  -ldflags "-s -w -X main.version=v0.2.0" -o /tmp/verify/mine ./cmd/mockryx
+  -ldflags "-s -w -X main.version=$V" -o /tmp/verify/mine ./cmd/mockryx
 
 sha256sum /tmp/verify/mine /tmp/verify/mockryx_darwin_arm64/mockryx
 # macOS ships shasum -a 256 rather than sha256sum, and this example builds for
 # darwin, so that is probably the one you want
 ```
 
-Two identical digests. Measured on 5 August 2026 from a fresh clone against the
-real `v0.2.0` assets, cross-compiled on an Ubuntu runner and rebuilt on macOS:
-`1cce1b7967dbbfe7278747f7e74aba76280f671969ea460bfed0214403afadf6`.
+Two identical digests: that is the property this recipe checks, not a specific
+number to expect, since `-X main.version=$V` means the bytes change at every
+tag. As a worked example rather than a promise, re-measured on 6 August 2026
+against the real `v0.2.1` assets, from a plain `git clone` (**not** a
+`git worktree`, see the warning below, which this re-measurement hit on the
+first attempt): `be238d04ec041593a11d03cc3194cb0df5f515280cbff60d398c2476f0d8588d`.
+An earlier version of this section pinned the recipe itself to `v0.2.0` with a
+digest measured against it; the repository moved to `v0.2.1` and the release
+workflow's asset naming changed underneath it in the same window (the asset
+filename stopped embedding the version, see "the asset names carry no
+version" above). Following the old recipe literally now compared a
+downloaded `v0.2.1` against a locally rebuilt `v0.2.0`, and the digests
+differed on the version string alone, not because anything was actually
+broken. `$V` above exists so that specific mistake cannot recur: it always
+names whatever `releases/latest` currently is, because it is read from the
+thing you just downloaded rather than typed into the recipe.
 
 **Build from a clean tree, and do not unpack our archive inside it.** Go stamps
 `vcs.modified` into the binary, and **one untracked file anywhere in the
