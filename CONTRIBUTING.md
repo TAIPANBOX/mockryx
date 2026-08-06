@@ -84,7 +84,7 @@ nothing more.
    invariant 2, the same property `scripts/selftest.sh` checks for every
    shipped scenario).
 
-4. **What makes it a good fit here.** Read the five files already in
+4. **What makes it a good fit here.** Read the six files already in
    `scenarios/` and CLAUDE.md's "What this tool is" before writing a new
    one. In practice: it targets only the gateway URL given via `--gateway`
    / `$MOCKRYX_GATEWAY`, never a hardcoded host, because the scenario format

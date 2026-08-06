@@ -110,11 +110,12 @@ Run the whole open stack locally with one command via [**stack-up**](https://git
 
 Before any public launch, Mockryx ran its fire-drills in their intended mode - a real gateway in front of
 a stub provider - on two separate campaigns: 3 scenarios, 3 held, 0 defensive gaps, $0 real spend, both
-times. Those three were `runaway-budget`, `wardryx-denied-tool` and `dlp-secret-leak`. Five ship today:
-`on-behalf-of-forged-chain` and `approval-required` were written after those campaigns and have never been
-fired at a real gateway. What holds them is `scripts/selftest.sh`, which proves a scenario can SEE its
-guardrail missing, not that the guardrail holds. Those are different claims and only the first one covers
-all five.
+times. Those three were `runaway-budget`, `wardryx-denied-tool` and `dlp-secret-leak`. Six ship today:
+`on-behalf-of-forged-chain`, `approval-required`, and `verdryx-quality-drift` were written after those
+campaigns and have never been fired at a real gateway (`verdryx-quality-drift` also depends on a real
+Verdryx reacting off path, which no campaign so far has included). What holds them is
+`scripts/selftest.sh`, which proves a scenario can SEE its guardrail missing, not that the guardrail
+holds. Those are different claims and only the first one covers all six.
 
 ![Mockryx pre-prod rehearsal: 3 drills run against a real gateway, 3 held, 0 defensive gaps, $0 real spend](assets/13-mockryx.png)
 
@@ -148,6 +149,9 @@ real spend, remain the evidence for the harness itself.
 <img src="docs/scenarios.png" alt="Five guardrail fire drills: runaway budget against the Breaker, denied tool use, a forged delegation chain and a missing approval against Wardryx, and a secret-leak prompt against DLP. Each card names what the drill asserts must happen, a GAP means a Finding was recorded, and an amber dot marks the two scenarios that have never been fired at a real gateway" width="900">
 </div>
 
+The diagram above predates `verdryx-quality-drift`, the sixth scenario in the table below; it still
+shows the original five.
+
 Mockryx works in four steps:
 
 1. **Load** a directory of scenario files (`internal/scenario`): each one
@@ -164,7 +168,7 @@ Mockryx works in four steps:
    (`internal/events`), via `agent-stack-go/event.ChainedWriter`, so a fire
    drill leaves the same kind of audit trail as the guardrails it rehearses.
 
-Five example scenarios ship in `scenarios/`, each rehearsing a different
+Six example scenarios ship in `scenarios/`, each rehearsing a different
 guardrail:
 
 | File | Rehearses | Requires | Expects |
@@ -174,6 +178,7 @@ guardrail:
 | `on-behalf-of-forged-chain.yaml` | An agent presenting a forged (cyclic) delegation chain | `wardryx` | `403` + `x-fuse-wardryx: deny` |
 | `approval-required.yaml` | A high-cost action submitted with no approval token | `wardryx` | `403` + `x-fuse-wardryx: hold` |
 | `dlp-secret-leak.yaml` | A prompt that embeds what looks like a live credential | `dlp` | `403` |
+| `verdryx-quality-drift.yaml` | The same denied tool-use attempt as `wardryx-denied-tool.yaml`, plus Verdryx's off-path reaction to it | `wardryx` | `403` + `x-fuse-wardryx: deny`, and a `verdryx`/`quality_drift` event within 10s (see [Async reaction checks](#async-reaction-checks)) |
 
 `dlp-secret-leak.yaml` uses `AKIAIOSFODNN7EXAMPLE`, AWS's own well-known,
 publicly documented, non-functional placeholder access key ID (used
@@ -549,9 +554,9 @@ or unwritable events path never blocks a run.
 - [x] human + JSON report rendering, save/load (`mockryx report`)
 - [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.ChainedWriter` (SPEC 6.5 prev_hash chain), opt-in (`MOCKRYX_EVENTS_PATH`)
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
-- [x] five shipped example scenarios: `runaway-budget` (core Breaker), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` (DLP)
+- [x] six shipped example scenarios: `runaway-budget` (core Breaker), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` (DLP), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction)
 - [x] `agent-stack-go` v0.4.0 pinned dependency, no local `replace`
-- [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`)
+- [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`); exercised by `scripts/selftest.sh` both ways (a matching event found, a missing one reported as a `Finding`), and shipped in `verdryx-quality-drift.yaml`
 - [ ] Later: additional built-in scenario packs, as new guardrails ship in TokenFuse / Wardryx
 
 ## License
