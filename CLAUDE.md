@@ -161,13 +161,26 @@ missing, because the console shows it green.
 
 The assertion in both runs is that **no scenario passes**. Verified by breaking
 first, twice: a scenario expecting the 200 an open gateway already returns is
-caught in both runs, with and without a `requires:` declaration. All five
+caught in both runs, with and without a `requires:` declaration. All six
 shipped scenarios pass the check today, which is the first evidence this repo
 has that its own drills can see anything.
 
 What it does not cover: whether a scenario rehearses the guardrail it claims to.
 A scenario could expect the right status for the wrong reason, and nothing here
 would notice.
+
+**Neither the silent nor the signalling stub ever reaches `internal/watch`.**
+Both answer every request with `200`, `verdryx-quality-drift.yaml` expects
+`403`, and `runner.runStep` only ever consults the watcher after the
+synchronous status/header assertion has already matched. So a third section
+of `scripts/selftest.sh` runs that one scenario against a stub that genuinely
+enforces (`403` + `x-fuse-wardryx: deny`), which is the only mode where the
+watcher is ever consulted at all, and checks both directions: a matching
+synthetic `verdryx` event already on disk is found (the scenario passes), and
+its absence is reported as a `Finding` naming the exact `source`/`type` it
+waited for, not a generic mismatch. Without this, `--watch-events` could
+regress into a silent no-op and neither the silent nor the signalling section
+would notice, since neither ever calls it.
 
 Invariant 6 is now two tests, and the first is the interesting one. Rather than
 grepping scenario files for hosts, it walks the scenario struct with reflection

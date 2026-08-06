@@ -251,8 +251,8 @@ func TestShippedExampleScenariosParse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDir(../../scenarios): %v", err)
 	}
-	if len(scenarios) < 5 {
-		t.Fatalf("got %d example scenarios, want at least 5", len(scenarios))
+	if len(scenarios) < 6 {
+		t.Fatalf("got %d example scenarios, want at least 6", len(scenarios))
 	}
 
 	byName := map[string]Scenario{}
@@ -261,7 +261,7 @@ func TestShippedExampleScenariosParse(t *testing.T) {
 	}
 	for _, name := range []string{
 		"runaway-budget", "wardryx-denied-tool", "dlp-secret-leak",
-		"approval-required", "on-behalf-of-forged-chain",
+		"approval-required", "on-behalf-of-forged-chain", "verdryx-quality-drift",
 	} {
 		if _, ok := byName[name]; !ok {
 			t.Errorf("expected shipped example scenario %q", name)
@@ -281,6 +281,33 @@ func TestShippedExampleScenariosParse(t *testing.T) {
 	}
 	if byName["on-behalf-of-forged-chain"].Requires != "wardryx" {
 		t.Error(`on-behalf-of-forged-chain must declare requires: "wardryx"`)
+	}
+
+	// verdryx-quality-drift is the one shipped scenario exercising
+	// expect.event (the async, off-path reaction check in internal/watch):
+	// every other shipped scenario only ever asserts the gateway's own
+	// synchronous status/header, so without this one the whole feature ships
+	// with zero exercise through the catalog a real operator actually runs.
+	vqd, ok := byName["verdryx-quality-drift"]
+	if !ok {
+		t.Fatal(`expected shipped example scenario "verdryx-quality-drift"`)
+	}
+	if vqd.Requires != "wardryx" {
+		t.Error(`verdryx-quality-drift must declare requires: "wardryx"` +
+			" (its synchronous half is the same denied-tool check as wardryx-denied-tool)")
+	}
+	if len(vqd.Steps) == 0 || vqd.Steps[0].Expect.Event == nil {
+		t.Fatal("verdryx-quality-drift must declare an expect.event block; " +
+			"that is the entire reason this scenario exists")
+	}
+	if ev := vqd.Steps[0].Expect.Event; ev.Source != "verdryx" || ev.Type != "quality_drift" {
+		t.Errorf("verdryx-quality-drift expect.event = {source:%q type:%q}, want {source:verdryx type:quality_drift}",
+			ev.Source, ev.Type)
+	}
+	if vqd.Steps[0].Headers.RunID == "" {
+		t.Error("verdryx-quality-drift must pin an explicit headers.run_id: " +
+			"scripts/selftest.sh correlates a synthetic verdryx event against " +
+			"this exact value, which an auto-generated run_id would make impossible to predict")
 	}
 }
 

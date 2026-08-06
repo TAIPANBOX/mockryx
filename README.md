@@ -110,11 +110,12 @@ Run the whole open stack locally with one command via [**stack-up**](https://git
 
 Before any public launch, Mockryx ran its fire-drills in their intended mode - a real gateway in front of
 a stub provider - on two separate campaigns: 3 scenarios, 3 held, 0 defensive gaps, $0 real spend, both
-times. Those three were `runaway-budget`, `wardryx-denied-tool` and `dlp-secret-leak`. Five ship today:
-`on-behalf-of-forged-chain` and `approval-required` were written after those campaigns and have never been
-fired at a real gateway. What holds them is `scripts/selftest.sh`, which proves a scenario can SEE its
-guardrail missing, not that the guardrail holds. Those are different claims and only the first one covers
-all five.
+times. Those three were `runaway-budget`, `wardryx-denied-tool` and `dlp-secret-leak`. Six ship today:
+`on-behalf-of-forged-chain`, `approval-required`, and `verdryx-quality-drift` were written after those
+campaigns and have never been fired at a real gateway (`verdryx-quality-drift` also depends on a real
+Verdryx reacting off path, which no campaign so far has included). What holds them is
+`scripts/selftest.sh`, which proves a scenario can SEE its guardrail missing, not that the guardrail
+holds. Those are different claims and only the first one covers all six.
 
 ![Mockryx pre-prod rehearsal: 3 drills run against a real gateway, 3 held, 0 defensive gaps, $0 real spend](assets/13-mockryx.png)
 
@@ -148,6 +149,9 @@ real spend, remain the evidence for the harness itself.
 <img src="docs/scenarios.png" alt="Five guardrail fire drills: runaway budget against the Breaker, denied tool use, a forged delegation chain and a missing approval against Wardryx, and a secret-leak prompt against DLP. Each card names what the drill asserts must happen, a GAP means a Finding was recorded, and an amber dot marks the two scenarios that have never been fired at a real gateway" width="900">
 </div>
 
+The diagram above predates `verdryx-quality-drift`, the sixth scenario in the table below; it still
+shows the original five.
+
 Mockryx works in four steps:
 
 1. **Load** a directory of scenario files (`internal/scenario`): each one
@@ -164,7 +168,7 @@ Mockryx works in four steps:
    (`internal/events`), via `agent-stack-go/event.ChainedWriter`, so a fire
    drill leaves the same kind of audit trail as the guardrails it rehearses.
 
-Five example scenarios ship in `scenarios/`, each rehearsing a different
+Six example scenarios ship in `scenarios/`, each rehearsing a different
 guardrail:
 
 | File | Rehearses | Requires | Expects |
@@ -174,6 +178,7 @@ guardrail:
 | `on-behalf-of-forged-chain.yaml` | An agent presenting a forged (cyclic) delegation chain | `wardryx` | `403` + `x-fuse-wardryx: deny` |
 | `approval-required.yaml` | A high-cost action submitted with no approval token | `wardryx` | `403` + `x-fuse-wardryx: hold` |
 | `dlp-secret-leak.yaml` | A prompt that embeds what looks like a live credential | `dlp` | `403` |
+| `verdryx-quality-drift.yaml` | The same denied tool-use attempt as `wardryx-denied-tool.yaml`, plus Verdryx's off-path reaction to it | `wardryx` | `403` + `x-fuse-wardryx: deny`, and a `verdryx`/`quality_drift` event within 10s (see [Async reaction checks](#async-reaction-checks)) |
 
 `dlp-secret-leak.yaml` uses `AKIAIOSFODNN7EXAMPLE`, AWS's own well-known,
 publicly documented, non-functional placeholder access key ID (used
@@ -201,6 +206,18 @@ gateway feature, so `runaway-budget` has none) can never be
 transport error (the gateway could not be reached at all) is always a
 `Finding`, regardless of `requires`: being unreachable is never evidence a
 feature is merely turned off.
+
+**`--fail-on-skip`** overrides the default for an operator who knows better.
+A `skipped_not_configured` result and a badly-broken guardrail look
+identical from the wire alone, that ambiguity is exactly why `Skipped`
+exists and is not a gap by default, but an operator who knows the guardrail
+*must* be present (it is enabled in their own gateway config, say) can pass
+`--fail-on-skip` to promote every such scenario's dropped mismatches into
+real `Finding`s, which then count toward the process exit code the same as
+an ordinary gap. The report still honestly shows `skipped_not_configured` as
+the status mockryx actually observed; `--fail-on-skip` only changes whether
+that status is allowed to pass CI, not what happened. Off by default, so a
+plain `mockryx run` is unaffected either way.
 
 ---
 
@@ -367,21 +384,41 @@ mkdir -p /tmp/verify && cd /tmp/verify
 curl -fsSLO https://github.com/TAIPANBOX/mockryx/releases/latest/download/mockryx_darwin_arm64.tar.gz
 tar -xzf mockryx_darwin_arm64.tar.gz
 
+# The asset name carries no version (see below), so read the version back out
+# of the binary you just downloaded rather than typing a tag: that is what
+# keeps this recipe correct at the NEXT release too, not only the one current
+# when this was written.
+V=$(./mockryx_darwin_arm64/mockryx version | awk '{print $2}')
+echo "verifying $V"
+
 # yours, from a clean tree
 cd /path/to/your/mockryx
-git checkout v0.2.0
+git checkout "$V"
 git status --porcelain      # must print nothing at all
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath \
-  -ldflags "-s -w -X main.version=v0.2.0" -o /tmp/verify/mine ./cmd/mockryx
+  -ldflags "-s -w -X main.version=$V" -o /tmp/verify/mine ./cmd/mockryx
 
 sha256sum /tmp/verify/mine /tmp/verify/mockryx_darwin_arm64/mockryx
 # macOS ships shasum -a 256 rather than sha256sum, and this example builds for
 # darwin, so that is probably the one you want
 ```
 
-Two identical digests. Measured on 5 August 2026 from a fresh clone against the
-real `v0.2.0` assets, cross-compiled on an Ubuntu runner and rebuilt on macOS:
-`1cce1b7967dbbfe7278747f7e74aba76280f671969ea460bfed0214403afadf6`.
+Two identical digests: that is the property this recipe checks, not a specific
+number to expect, since `-X main.version=$V` means the bytes change at every
+tag. As a worked example rather than a promise, re-measured on 6 August 2026
+against the real `v0.2.1` assets, from a plain `git clone` (**not** a
+`git worktree`, see the warning below, which this re-measurement hit on the
+first attempt): `be238d04ec041593a11d03cc3194cb0df5f515280cbff60d398c2476f0d8588d`.
+An earlier version of this section pinned the recipe itself to `v0.2.0` with a
+digest measured against it; the repository moved to `v0.2.1` and the release
+workflow's asset naming changed underneath it in the same window (the asset
+filename stopped embedding the version, see "the asset names carry no
+version" above). Following the old recipe literally now compared a
+downloaded `v0.2.1` against a locally rebuilt `v0.2.0`, and the digests
+differed on the version string alone, not because anything was actually
+broken. `$V` above exists so that specific mistake cannot recur: it always
+names whatever `releases/latest` currently is, because it is read from the
+thing you just downloaded rather than typed into the recipe.
 
 **Build from a clean tree, and do not unpack our archive inside it.** Go stamps
 `vcs.modified` into the binary, and **one untracked file anywhere in the
@@ -549,9 +586,9 @@ or unwritable events path never blocks a run.
 - [x] human + JSON report rendering, save/load (`mockryx report`)
 - [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.ChainedWriter` (SPEC 6.5 prev_hash chain), opt-in (`MOCKRYX_EVENTS_PATH`)
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
-- [x] five shipped example scenarios: `runaway-budget` (core Breaker), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` (DLP)
+- [x] six shipped example scenarios: `runaway-budget` (core Breaker), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` (DLP), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction)
 - [x] `agent-stack-go` v0.4.0 pinned dependency, no local `replace`
-- [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`)
+- [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`); exercised by `scripts/selftest.sh` both ways (a matching event found, a missing one reported as a `Finding`), and shipped in `verdryx-quality-drift.yaml`
 - [ ] Later: additional built-in scenario packs, as new guardrails ship in TokenFuse / Wardryx
 
 ## License

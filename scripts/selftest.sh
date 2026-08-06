@@ -27,6 +27,18 @@
 # PASS. A scenario that passes here cannot see its own guardrail being absent,
 # which makes it a comment with a name.
 #
+# Neither mode above ever reaches internal/watch's event-watch code at all:
+# both stubs answer 200, the shipped verdryx-quality-drift scenario expects
+# 403, and runner.runStep only ever consults the watcher after the
+# synchronous status/header assertion has already matched (a synchronous
+# mismatch is never followed by an event check). So a THIRD section below,
+# against a stub that genuinely enforces, exercises --watch-events for real:
+# a matching synthetic verdryx event already on disk is found (the scenario
+# passes), and no such event is correctly reported as a Finding naming the
+# exact source/type it waited for, not a generic mismatch. Without this, the
+# --watch-events flag could regress into a silent no-op and nothing here
+# would notice.
+#
 # This file is the ONE copy of this check. The local hook calls it, and CI would
 # call the same file if this repo ever gets CI.
 
@@ -56,6 +68,21 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("content-length") or 0)
         self.rfile.read(n)
+        if MODE == "enforcing":
+            # Genuinely holds the one guardrail this mode exists to prove:
+            # a denied tool comes back 403 + x-fuse-wardryx: deny, exactly
+            # what verdryx-quality-drift.yaml (and wardryx-denied-tool.yaml)
+            # expect. This is the only mode where runner.runStep's
+            # synchronous match ever succeeds, so it is the only mode that
+            # ever reaches the event-watch code at all.
+            body = b'{"stub":true,"error":"denied"}'
+            self.send_response(403)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.send_header("x-fuse-wardryx", "deny")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         body = b'{"stub":true,"content":[{"type":"text","text":"ok"}]}'
         self.send_response(200)
         self.send_header("content-type", "application/json")
@@ -108,9 +135,16 @@ stop_stub() {
 
 run_mode() { # mode -> writes $WORK/<mode>.json
 	start_stub "$1" || exit 1
+	# --watch-events points at a file that is never actually polled in this
+	# mode: verdryx-quality-drift.yaml expects 403, both stubs answer 200, so
+	# the synchronous mismatch is caught before the watcher is ever consulted
+	# (see runner.runStep). It only has to be present so mockryx's upfront
+	# "expect.event needs a watch path" check does not refuse to run at all.
+	#
 	# A run that finds gaps exits non-zero by design, so the exit code is not
 	# the signal here; the report is.
-	"$BIN" run --gateway "http://127.0.0.1:$PORT" --format json scenarios/ \
+	"$BIN" run --gateway "http://127.0.0.1:$PORT" --format json \
+		--watch-events "$WORK/unused-events.ndjson" scenarios/ \
 		>"$WORK/$1.json" 2>"$WORK/$1.err"
 	stop_stub
 	if [ ! -s "$WORK/$1.json" ]; then
@@ -200,4 +234,114 @@ print(
     f"{n_failed_sil} report a gap / {n_skipped_sil} report not-configured when "
     f"they stay silent. None passes."
 )
+PY
+
+# --- Third check: does --watch-events actually get exercised? ---
+#
+# Both modes above prove the SYNCHRONOUS half can see a gap. Neither ever
+# calls internal/watch's Wait at all (see the header comment above). This
+# section runs the one scenario that declares expect.event against a stub
+# that genuinely enforces (403 + x-fuse-wardryx: deny), so the synchronous
+# assertion actually matches and the watcher is actually consulted, and
+# checks both directions:
+#
+#   present   a synthetic verdryx quality_drift event, correlated by the
+#             scenario's pinned run_id, already sits in the watched file
+#             before mockryx runs. The scenario must pass.
+#
+#   absent    the watched file exists but holds no matching event. The
+#             scenario must fail with a Finding naming source "verdryx" and
+#             type "quality_drift" specifically -- proving the gap was
+#             diagnosed as a missing EVENT, not confused with a synchronous
+#             mismatch (which never sets those two fields; see
+#             runner.Finding).
+#
+# Isolated to one scenario in its own directory, copied out of scenarios/,
+# so this stub does not also have to answer correctly for the other five
+# shapes it has no opinion on.
+
+mkdir -p "$WORK/watch-scenario"
+cp scenarios/verdryx-quality-drift.yaml "$WORK/watch-scenario/"
+
+RUN_ID="mockryx-verdryx-quality-drift"
+cat >"$WORK/verdryx-present.ndjson" <<EOF
+{"schema":"taipanbox.dev/agent-event/v0.2","ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","source":"verdryx","type":"quality_drift","agent_id":"agent://verdryx.local/harness","run_id":"$RUN_ID"}
+EOF
+: >"$WORK/verdryx-absent.ndjson"
+
+start_stub enforcing || exit 1
+
+"$BIN" run --gateway "http://127.0.0.1:$PORT" --format json \
+	--watch-events "$WORK/verdryx-present.ndjson" "$WORK/watch-scenario/" \
+	>"$WORK/watch-present.json" 2>"$WORK/watch-present.err"
+
+# The negative case has to wait out the real timeout for a correct "absent"
+# verdict, so it runs against a copy with a short one (1s instead of the
+# shipped 10s) -- the SHIPPED scenario keeps its generous default for a real
+# operator's own, genuinely asynchronous Verdryx; only this self-test copy
+# is impatient. The positive case above needs no such copy: Wait checks
+# every path before it ever sleeps, so an event already on disk matches on
+# the first pass regardless of the timeout.
+sed 's/within: 10s/within: 1s/' scenarios/verdryx-quality-drift.yaml \
+	>"$WORK/watch-scenario/verdryx-quality-drift.yaml"
+
+"$BIN" run --gateway "http://127.0.0.1:$PORT" --format json \
+	--watch-events "$WORK/verdryx-absent.ndjson" "$WORK/watch-scenario/" \
+	>"$WORK/watch-absent.json" 2>"$WORK/watch-absent.err"
+
+stop_stub
+
+for f in "$WORK/watch-present.json" "$WORK/watch-absent.json"; do
+	if [ ! -s "$f" ]; then
+		echo "FAIL: $f is empty, so the watch-path run produced no report at all"
+		exit 1
+	fi
+done
+
+python3 - "$WORK/watch-present.json" "$WORK/watch-absent.json" <<'PY'
+import json
+import pathlib
+import sys
+
+present = json.loads(pathlib.Path(sys.argv[1]).read_text())
+absent = json.loads(pathlib.Path(sys.argv[2]).read_text())
+
+problems = []
+
+pr = present["results"]
+ab = absent["results"]
+
+if len(pr) != 1 or len(ab) != 1:
+    problems.append(f"expected exactly one scenario result in each run, got {len(pr)} and {len(ab)}")
+else:
+    if pr[0]["status"] != "passed":
+        problems.append(
+            f"present: verdryx-quality-drift came back {pr[0]['status']!r} even with a matching "
+            f"event already on disk -- the watch path is not finding an event that IS there"
+        )
+    if ab[0]["status"] != "failed":
+        problems.append(
+            f"absent: verdryx-quality-drift came back {ab[0]['status']!r} with no matching event "
+            f"on disk -- the watch path is not reporting a gap for an event that is NOT there"
+        )
+    else:
+        findings = ab[0].get("findings") or []
+        if len(findings) != 1 or findings[0].get("expect_event_source") != "verdryx" or findings[0].get("expect_event_type") != "quality_drift":
+            problems.append(
+                f"absent: expected exactly one Finding naming expect_event_source=verdryx "
+                f"expect_event_type=quality_drift, got {findings!r} -- this must be the EVENT "
+                f"check failing, not a synchronous mismatch wearing the same exit code"
+            )
+
+if problems:
+    for p in problems:
+        print(f"FAIL: {p}")
+    print()
+    print("--watch-events has to be proven both ways, the same as invariant 2 itself:")
+    print("finding nothing is only meaningful if the same mechanism demonstrably finds")
+    print("something when it is there.")
+    sys.exit(1)
+
+print("OK: --watch-events finds a matching verdryx event that is there, and reports a")
+print("Finding naming the exact source/type it waited for when it is not.")
 PY

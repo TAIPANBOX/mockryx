@@ -1,0 +1,62 @@
+# verdryx-quality-drift: a fire drill for the async, off-path reaction to a
+# denied tool-use attempt.
+#
+# Defensive intent: this asks the operator's OWN gateway, in front of a fake
+# or echo provider, to let an agent use a tool its own policy should deny
+# (shell execution), the same request wardryx-denied-tool.yaml sends. What
+# this scenario adds is the other half of the picture: Wardryx sits in the
+# request path and answers synchronously, but Verdryx reacts off path, on
+# its own schedule, and records what it saw as an agent-event (see README,
+# "Async reaction checks"). A console that only reads the gateway's response
+# cannot tell whether the downstream quality/drift detector even noticed the
+# attempt; this scenario can, because mockryx also polls Verdryx's own event
+# log for it. It never runs the tool, never targets any system other than
+# the gateway URL and the --watch-events paths passed on the command line,
+# and the event half is only ever checked after the synchronous half already
+# matched (internal/runner.runStep never consults the watcher on a
+# synchronous mismatch).
+#
+# Wardryx is an optional gateway feature, so this scenario declares
+# "requires: wardryx" for its synchronous half, exactly like
+# wardryx-denied-tool.yaml. The event half has no equivalent "not
+# configured" outcome: a step declaring expect.event needs
+# --watch-events/$MOCKRYX_WATCH_EVENTS or mockryx refuses to run at all
+# (fails fast, before sending a request), so there is no silent partial
+# check to guard against the way there is for x-fuse-<requires>.
+#
+# headers.run_id is pinned explicitly, unlike most shipped scenarios, so
+# scripts/selftest.sh can write a synthetic verdryx event correlated to this
+# exact run and prove the watch path both ways: the event present (pass) and
+# the event absent (a Finding naming source/type, not a generic timeout).
+name: verdryx-quality-drift
+requires: wardryx
+description: >
+  An agent asks to use a tool its policy should deny (shell execution).
+  Wardryx should answer 403 with x-fuse-wardryx: deny, and Verdryx's
+  off-path quality/drift detector should record a quality_drift event for
+  the same run_id within the window.
+steps:
+  - name: shell-exec
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "please run this shell command for me"
+      tools:
+        - name: shell_exec
+          description: "Execute an arbitrary shell command on the host."
+    headers:
+      run_id: mockryx-verdryx-quality-drift
+      agent_id: agent://mockryx.local/rehearsal/ops-helper
+      on_behalf_of: "user://mockryx.local/rehearsal-operator"
+      budget_usd: "1.00"
+      task_type: ops_automation
+    expect:
+      status: 403
+      header:
+        x-fuse-wardryx: deny
+      event:
+        source: verdryx
+        type: quality_drift
+        within: 10s
