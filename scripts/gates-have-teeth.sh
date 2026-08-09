@@ -32,11 +32,16 @@
 #
 # A GATE THAT IS ALREADY FAILING CANNOT BE JUDGED
 #
-# A case expecting a gate to FAIL proves nothing if the gate was failing before
-# the mutation. So every fail-case runs the gate on the UNMUTATED tree first
-# and reports UNJUDGEABLE rather than a pass. Found on 2026-08-09 in it-rat,
-# where one gate was legitimately red and a case against it would have been
-# indistinguishable from a working one.
+# No case proves anything if the gate was already failing before the mutation.
+# So every case runs the gate on the UNMUTATED tree first and reports
+# UNJUDGEABLE. Found on 2026-08-09 in it-rat, where one gate was legitimately
+# red and a case against it would have been indistinguishable from a working
+# one.
+#
+# It covered only the fail-cases at first, which left the mirror of the same
+# bug: on a red gate a pass-case reports OVEREAGER, "the gate failed on
+# something it must not catch", and sends the reader to look at a harmless
+# mutation. The verdict was being given without the predicate it depends on.
 #
 # A MUTATION THAT DID NOT APPLY PROVES NOTHING
 #
@@ -92,17 +97,21 @@ run_case() {
 	local name="$1" expect="$2" gate="$3" edit="$4" needle="${5:-}"
 	cases=$((cases + 1))
 
-	# A gate that is ALREADY failing cannot be judged: a fail-case against it
-	# passes while proving nothing, which is this harness committing the very
-	# fault it exists to catch. Added estate-wide on 2026-08-09 after it-rat,
-	# where `demo-bundle-current.sh` was red on a clean tree because the
-	# published demo had fallen behind genaryx. Any case written against it
-	# would have gone green having measured nothing.
-	#
-	# The result is cached per GATE rather than per case: the tree is restored
-	# between cases, so a gate's verdict on the clean tree cannot change within
-	# one run, and some of these gates compile or run a whole suite.
-	if [ "$expect" = fail ]; then
+	# The baseline applies to EVERY case, not only the ones expecting a failure.
+	# It was `fail`-only until 2026-08-09, which left the mirror of the bug it was
+	# written for: on a gate that is already red, a `pass` case reports OVEREAGER,
+	# "the gate failed on something it must not catch", and sends the reader to
+	# look at a harmless mutation while the gate was failing without it. Neither
+	# verdict means anything on a red gate, so neither is given.
+	skip_baseline=0
+	if [ "$expect" = fail_env ]; then
+		# `fail` with the baseline skipped, for cases whose fault IS the command
+		# rather than a mutation: red before and after is the point there.
+		expect=fail
+		skip_baseline=1
+	fi
+
+	if [ "$skip_baseline" = 0 ]; then
 		local key base_out
 		key="$baseline_dir/$(printf '%s' "$gate" | cksum | tr -d ' ')"
 		if [ ! -f "$key" ]; then
@@ -110,7 +119,7 @@ run_case() {
 		fi
 		base_out="$(cat "$key")"
 		if [ "$base_out" = red ]; then
-			printf 'UNJUDGEABLE  %s\n             the gate is already failing on a clean tree, so a\n             failure after the mutation would prove nothing\n' "$name"
+			printf 'UNJUDGEABLE  %s\n             the gate is already failing on a clean tree, so neither a\n             failure nor a pass after the mutation would prove anything\n' "$name"
 			failures=$((failures + 1))
 			return
 		fi
