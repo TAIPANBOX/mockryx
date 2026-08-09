@@ -54,7 +54,19 @@ go test -race ./...
 go build ./...
 ./scripts/deps-tight.sh
 ./scripts/selftest.sh
+./scripts/readme-numbers.sh
+./scripts/reproducible-build.sh
+./scripts/gates-have-teeth.sh   # invariant 9; needs a clean tree, run it after committing
 ```
+
+`readme-numbers.sh` and `reproducible-build.sh` were missing from this list
+until 2026-08-09 while CI ran both, so "run every gate below" was a smaller
+instruction than CI's, and anybody following it ran two gates of four believing
+they had run all of them. A list that covers part of something inherits trust
+for the whole.
+
+`reproducible-build.sh` builds from `git archive HEAD`, so it judges the last
+commit rather than the working tree: run it after committing.
 
 CI additionally runs `govulncheck ./...`. Run it before touching `go.mod`.
 
@@ -137,6 +149,33 @@ an absent invariant.
    finds no asset name at all, because a check that goes green once its subject
    has vanished is worse than no check. Verified by breaking: putting the version
    back fails it in all four repositories that share this shape.)*
+
+9. **A check must be able to tell "did not fail" from "did not run", and every
+   gate here has been made to fail on purpose to prove it can.** Three of the
+   four gates above already refuse when their subject is absent, and the
+   invariants above each say so in a sentence. Those sentences were true. Every
+   one was established by hand, once, in the session that wrote the script, and
+   nothing re-ran them.
+
+   A text parser does not break loudly: it stops matching and reports success.
+   The mutants that proved these gates lived in commit messages and in the
+   `*(gate: ...)*` markers above, which is a record of what was true once.
+
+   Across idryx and tokenfuse on 2026-08-09 the same harness caught five
+   mutations that changed no bytes, and three of the five had been verified by
+   hand against the same gate minutes earlier. So every mutation asserts it
+   applied: a case whose edit changed nothing is a failure here, not a pass.
+   *(gate: `scripts/gates-have-teeth.sh`, 11 cases: five real faults each gate
+   must catch, two non-faults they must not, and four subjects taken away
+   entirely, where the gate must say it measured nothing rather than report OK.
+   `selftest.sh` gets one case rather than several because it builds the binary
+   and stands up a stub gateway; the one it gets is the property it names
+   itself, that a tree which does not build measured nothing.)*
+
+   **What it does not cover.** It cannot test itself; nothing watches this one
+   fail. It proves each gate catches the faults named in it, not every fault of
+   that kind. It found no hole in any of the four, which is the result to
+   expect from a ratchet on the day it is installed.
 
 ## Decisions that have no gate yet
 

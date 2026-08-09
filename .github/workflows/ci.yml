@@ -45,6 +45,13 @@ jobs:
       - name: a release can be rebuilt byte for byte
         run: ./scripts/reproducible-build.sh
 
+      # Last, because it mutates tracked files and restores them: anything
+      # after it would run against a tree it had just rewritten and put back.
+      # It needs a clean tree and says so plainly, so it also reports any
+      # earlier step that starts writing into the checkout.
+      - name: the gates above can still fail
+        run: ./scripts/gates-have-teeth.sh
+
   security:
     runs-on: ubuntu-latest
     steps:
