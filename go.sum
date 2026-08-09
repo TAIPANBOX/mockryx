@@ -1,5 +1,5 @@
-github.com/TAIPANBOX/agent-stack-go v0.4.0 h1:yDOFcUMJpsj+RwT86aWC4MSMTJVa9JWbNQkkQqiQjk8=
-github.com/TAIPANBOX/agent-stack-go v0.4.0/go.mod h1:WAcjEEK0eSxHfklrT/lmN297/WCnNGoD3SnqwxEIkK4=
+github.com/TAIPANBOX/agent-stack-go v0.6.0 h1:VhSF00mpF74IfhoWpcTkYUV/4R7fJIg9E1+KH2hvpLg=
+github.com/TAIPANBOX/agent-stack-go v0.6.0/go.mod h1:WAcjEEK0eSxHfklrT/lmN297/WCnNGoD3SnqwxEIkK4=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/gowebpki/jcs v1.0.1 h1:Qjzg8EOkrOTuWP7DqQ1FbYtcpEbeTzUoTN9bptp8FOU=
