@@ -92,6 +92,15 @@ class H(BaseHTTPRequestHandler):
             # guardrail an operator would believe in and should not.
             self.send_header("x-fuse-wardryx", "allow")
             self.send_header("x-fuse-dlp", "off")
+            # The agent firewall's family, added when injected-page.yaml
+            # arrived. Without it that scenario came back
+            # skipped_not_configured HERE, in the run whose whole point is a
+            # gateway that announces its guardrails and enforces none: the
+            # drill would have stayed silent against exactly the deployment it
+            # matters most against. This stub must stamp every family any
+            # shipped scenario declares in `requires:`, or the section is
+            # measuring the ones it happens to know.
+            self.send_header("x-fuse-taint", "web")
         self.end_headers()
         self.wfile.write(body)
 

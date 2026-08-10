@@ -52,12 +52,14 @@ zero through. This is `wardryx-denied-tool`'s property under a failure mode no d
 ## What this does not cover
 
 This page is a record of two campaigns, and it stays true about the moment it describes rather than
-about the repository today. Six scenarios ship now: `on-behalf-of-forged-chain`, `approval-required`,
-and `verdryx-quality-drift` were written after these runs and have never been fired at a real gateway
-(`verdryx-quality-drift` also depends on a real Verdryx reacting off path, which neither campaign
-included). What holds those three is `scripts/selftest.sh`, which proves a scenario can SEE its
-guardrail missing, not that the guardrail holds. Anyone citing "0 gaps" should cite it for the three
-named above.
+about the repository today. Seven scenarios ship now: `on-behalf-of-forged-chain`,
+`approval-required`, `verdryx-quality-drift` and `injected-page` were written after these runs and
+have never been fired at a real gateway
+(`verdryx-quality-drift` also depends on a real Verdryx reacting off path, and `injected-page`
+depends on the agent firewall being in `enforce` mode, neither of which either campaign included).
+What holds those four is `scripts/selftest.sh`, which proves a scenario can SEE its guardrail
+missing, not that the guardrail holds. Anyone citing "0 gaps" should cite it for the three that were
+actually fired, not for these.
 
 ## Method
 
