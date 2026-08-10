@@ -46,6 +46,33 @@ if [ "${actual:-0}" -eq 0 ]; then
 	exit 1
 fi
 
+
+# --- the scenario count VALIDATION.md states -------------------------------
+#
+# Added 2026-08-09, when a seventh scenario arrived and that page still said
+# six, in a sentence that then named four scenarios while calling them three.
+# The count is stated in prose with no owner, which is this estate's most
+# repeated defect and the reason this script exists at all.
+#
+# Written as a WORD there rather than a digit, because it reads as prose, so
+# the check maps the words it may be. A count past ten would need a digit and
+# would fail here loudly rather than silently stop matching.
+scen_actual=$(find scenarios -name '*.yaml' -type f | wc -l | tr -d ' ')
+WORDS=(zero one two three four five six seven eight nine ten)
+scen_word="${WORDS[$scen_actual]:-}"
+if [ -z "$scen_word" ]; then
+	note "there are $scen_actual scenarios and this check only knows how to spell up to ten"
+	note "  write the number as a digit in VALIDATION.md and teach this script to read it"
+elif ! grep -qiE "^${scen_word} scenarios ship now|[^a-z]${scen_word} scenarios ship now" VALIDATION.md; then
+	found=$(grep -oiE '[a-z]+ scenarios ship now' VALIDATION.md | head -1)
+	if [ -z "$found" ]; then
+		note "VALIDATION.md no longer says how many scenarios ship, so this check has nothing to compare against"
+		note "  it said '<n> scenarios ship now'; if you reworded it, update this script in the same commit"
+	else
+		note "VALIDATION.md says '$found' and scenarios/ holds $scen_actual"
+	fi
+fi
+
 stated=$(grep -o 'badge/tests-[0-9]*-' "$readme" | grep -o '[0-9]*' | head -1)
 if [ -z "$stated" ]; then
 	note "the README carries no tests badge, so this check has nothing to compare against"
