@@ -2,7 +2,7 @@ module github.com/TAIPANBOX/mockryx
 
 go 1.26
 
-toolchain go1.26.5
+toolchain go1.26.7
 
 require (
 	github.com/TAIPANBOX/agent-stack-go v0.7.0
