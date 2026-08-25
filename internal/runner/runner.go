@@ -138,8 +138,25 @@ func Run(s scenario.Scenario, gatewayURL, apiKey string, watcher Watcher) Result
 	signalSeen := s.Requires == ""
 	hardFailure := false
 
+	// One run_id for the whole scenario, minted here rather than per step, and
+	// unique to this invocation.
+	//
+	// Shared across steps because a drill that chases a reaction through more
+	// than one plane needs its steps to be one run: the crafted request is one
+	// step and the downstream record it should produce is watched by the next,
+	// and the watcher correlates on exactly this value. A per-step id made that
+	// scenario impossible to express without pinning a constant.
+	//
+	// Unique per invocation because the journals these drills read are
+	// append-only. Under a pinned constant, a run whose reaction never came
+	// still finds the PREVIOUS run's record sitting in the file and reports a
+	// pass, so the drill stops being able to fail. A step may still pin its own
+	// id and keep it verbatim, which is what a fixture replaying known bytes
+	// needs; it inherits that hazard along with the control.
+	runID := fmt.Sprintf("mockryx-%s-%d", sanitizeForID(s.Name), time.Now().UnixNano())
+
 	for _, step := range s.Steps {
-		out := runStep(client, watcher, gatewayURL, apiKey, s.Requires, step)
+		out := runStep(client, watcher, gatewayURL, apiKey, s.Requires, runID, step)
 		res.Metrics.Calls += out.calls
 		res.Metrics.BudgetBurnedUSD += out.budgetBurnedUSD
 		if out.signalSeen {
@@ -193,7 +210,7 @@ type stepOutcome struct {
 // watcher also observes a matching downstream reaction within Event.Within
 // -- otherwise a Finding for firing too late. If no attempt ever matches,
 // it returns a Finding after step.Repeat attempts.
-func runStep(client *http.Client, watcher Watcher, gatewayURL, apiKey, requires string, step scenario.Step) stepOutcome {
+func runStep(client *http.Client, watcher Watcher, gatewayURL, apiKey, requires, runID string, step scenario.Step) stepOutcome {
 	var out stepOutcome
 
 	repeat := step.Repeat
@@ -212,7 +229,7 @@ func runStep(client *http.Client, watcher Watcher, gatewayURL, apiKey, requires 
 
 	headers := step.Headers
 	if headers.RunID == "" {
-		headers.RunID = fmt.Sprintf("mockryx-%s-%d", sanitizeForID(step.Name), time.Now().UnixNano())
+		headers.RunID = runID
 	}
 
 	var lastStatus int

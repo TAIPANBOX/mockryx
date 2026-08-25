@@ -742,3 +742,56 @@ func TestRunEventCheckUsesTheWireRunID(t *testing.T) {
 		t.Errorf("watcher called with run_id = %q, want it to match the wire run_id exactly", w.calledRunID)
 	}
 }
+
+// twoStepScenario is two steps that pin no run_id of their own, which is what
+// a multi-hop drill looks like: one crafted request, then a second step that
+// waits for a downstream plane to react to the SAME run.
+func twoStepScenario() scenario.Scenario {
+	step := func(name string) scenario.Step {
+		return scenario.Step{
+			Name: name,
+			Request: scenario.Request{
+				Model:    "claude-haiku",
+				Messages: []scenario.Message{{Role: "user", Content: "hello"}},
+			},
+			Expect: scenario.Expect{Status: http.StatusOK},
+		}
+	}
+	return scenario.Scenario{Name: "two-step", Steps: []scenario.Step{step("first"), step("second")}}
+}
+
+func TestRunSharesOneRunIDAcrossStepsThatDoNotPinOne(t *testing.T) {
+	var seen []string
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		seen = append(seen, r.Header.Get("x-fuse-run-id"))
+		return http.StatusOK, nil
+	})
+
+	Run(twoStepScenario(), srv.URL, "", nil)
+	if len(seen) != 2 {
+		t.Fatalf("got %d calls, want 2", len(seen))
+	}
+	if seen[0] == "" {
+		t.Fatal("x-fuse-run-id was empty")
+	}
+	if seen[0] != seen[1] {
+		t.Errorf("step run ids differ: %q then %q; a drill that correlates two hops cannot do so across two ids", seen[0], seen[1])
+	}
+}
+
+func TestRunMintsAFreshRunIDPerRun(t *testing.T) {
+	var seen []string
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		seen = append(seen, r.Header.Get("x-fuse-run-id"))
+		return http.StatusOK, nil
+	})
+
+	Run(twoStepScenario(), srv.URL, "", nil)
+	Run(twoStepScenario(), srv.URL, "", nil)
+	if len(seen) != 4 {
+		t.Fatalf("got %d calls, want 4", len(seen))
+	}
+	if seen[0] == seen[2] {
+		t.Errorf("both runs used run id %q: a drill that reuses one id can pass on the previous run's evidence, since the journals it reads are append-only", seen[0])
+	}
+}
