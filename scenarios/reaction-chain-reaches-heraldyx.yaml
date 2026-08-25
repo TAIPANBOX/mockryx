@@ -46,20 +46,23 @@
 # wire, never synthesised, so step 1 can watch for it correlated by run_id
 # exactly the way the README's "Async reaction checks" section describes.
 #
-# WHY TWO STEPS SHARING ONE PINNED run_id, NOT ONE STEP WITH TWO event: BLOCKS
+# WHY TWO STEPS, NOT ONE STEP WITH TWO event: BLOCKS
 #
 # internal/scenario.Expect.Event is *EventExpect, one block per step: the
 # format has no way to ask a single step to wait for two different
 # downstream sources. Rather than widen the format (a new scenario
 # capability, and CLAUDE.md says that is escalate-first territory), this
 # uses the format's existing, documented allowance for more than one step:
-# README.md's "steps: required, at least one" never bounds it at one, and
-# headers.run_id, left blank, is only auto-generated PER STEP; pinned
-# explicitly (as verdryx-quality-drift.yaml and injected-page.yaml already
-# do for a single step), nothing stops two steps in the same scenario from
-# sharing the same run_id on purpose. So step 1 checks the first two facts
-# (in-path refusal, wardryx's own off-path record) and step 2, reusing the
-# identical run_id, checks the third (heraldyx's notification). Step 2's own
+# README.md's "steps: required, at least one" never bounds it at one, and a
+# run_id left blank is minted once per run and shared by every step of it,
+# so two steps are one run without either of them naming an id. Leaving it
+# blank is also what keeps the drill able to fail: the journals it reads are
+# append-only, so a pinned constant would let a run whose reaction never
+# came find the previous run's record and report a pass.
+#
+# So step 1 checks the first two facts (in-path refusal, wardryx's own
+# off-path record) and step 2, in the same run, checks the third
+# (heraldyx's notification). Step 2's own
 # request is not a second attempt at anything: Step.Request is a required
 # field, so a step that only wants to watch a log still has to send
 # something, and resending the identical crafted request is the least
@@ -120,7 +123,6 @@ steps:
         - name: shell_exec
           description: "Execute an arbitrary shell command on the host."
     headers:
-      run_id: mockryx-reaction-chain
       agent_id: agent://mockryx.local/rehearsal/reaction-chain
       on_behalf_of: "user://mockryx.local/rehearsal-operator"
       budget_usd: "1.00"
@@ -144,7 +146,6 @@ steps:
         - name: shell_exec
           description: "Execute an arbitrary shell command on the host."
     headers:
-      run_id: mockryx-reaction-chain
       agent_id: agent://mockryx.local/rehearsal/reaction-chain
       on_behalf_of: "user://mockryx.local/rehearsal-operator"
       budget_usd: "1.00"

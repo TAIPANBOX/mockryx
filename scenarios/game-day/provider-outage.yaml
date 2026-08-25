@@ -137,7 +137,6 @@ steps:
         - role: user
           content: "please pull up this afternoon's ticket queue for me"
     headers:
-      run_id: mockryx-provider-outage-game-day
       agent_id: agent://mockryx.local/rehearsal/game-day
       on_behalf_of: "user://mockryx.local/rehearsal-operator"
       budget_usd: "1.00"
@@ -152,7 +151,6 @@ steps:
         - role: user
           content: "please pull up this afternoon's ticket queue for me"
     headers:
-      run_id: mockryx-provider-outage-game-day
       agent_id: agent://mockryx.local/rehearsal/game-day
       on_behalf_of: "user://mockryx.local/rehearsal-operator"
       budget_usd: "1.00"
