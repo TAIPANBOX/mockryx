@@ -1,0 +1,165 @@
+# provider-outage-game-day: a fire drill for what the operator's OWN stack
+# does while its LLM provider is unreachable, not for anything a policy
+# engine decides.
+#
+# WHY THIS EXISTS
+#
+# Providers go down. A multi-hour window of elevated errors across major LLM
+# providers, and a shared-infrastructure outage that took more than one
+# provider offline at once, are both recent, public, verifiable events, not
+# hypotheticals. Nobody ships a way to rehearse that from the operator's own
+# side. Mockryx cannot make a real provider go down and does not try to: it
+# fires requests at one gateway URL and reads event files (see README,
+# "Design notes"). What it CAN honestly rehearse is the shape the task
+# itself is: a gateway an operator has deliberately pointed, in their own
+# pre-production environment, at an upstream that will refuse the
+# connection. That is a configuration the operator creates on purpose, the
+# same way "requires: wardryx" assumes an operator has deliberately turned
+# Wardryx on. This drill's job is only to assert what the gateway, the event
+# trail, and heraldyx then do, and do not do, while that is true.
+#
+# WHAT THIS DOES NOT REHEARSE, SAID HERE RATHER THAN LEFT TO BE DISCOVERED
+#
+#   - A provider that is reachable but answers with an error status (529,
+#     500, 503), the shape the public incidents above actually were.
+#     Grounded in tokenfuse/crates/gateway/src/provider.rs's
+#     HttpProvider::send: a non-2xx HTTP response from upstream is still
+#     Ok(ProviderResponse{status, ...}) at the provider layer, forwarded to
+#     the caller like any other completed call, WITH the usual settlement
+#     bookkeeping. Only a transport-level failure (req.send().await failing
+#     outright: DNS, refused connection, TLS, connect timeout) becomes
+#     Err(ProviderError::Upstream(..)). Rehearsing the reachable-but-erroring
+#     shape needs a stub HTTP server the operator controls well enough to
+#     answer 529 on demand, which is more infrastructure than "point
+#     TOKENFUSE_UPSTREAM at nothing" and is not something mockryx ships or
+#     stands up. This drill only exercises the unreachable shape.
+#   - Which of those two shapes a REAL Anthropic (or any other) outage was on
+#     any given day. Mockryx never talks to a real provider and cannot tell
+#     you that; see "Defensive intent" in README.md.
+#   - Any operator-configurable "degrade mode". There is no policy knob in
+#     tokenfuse for how it should behave on an unreachable upstream: today it
+#     does exactly one thing, unconditionally (see step 1). This drill pins
+#     that one behaviour as a regression guard, not as proof of a
+#     configuration an operator chose.
+#
+# STEP 1: DOES THE GATEWAY DEGRADE CLEANLY
+#
+# Grounded in tokenfuse/crates/gateway/src/proxy.rs: when
+# HttpProvider::send returns Err, the managed call path (after the budget
+# reservation, Wardryx, DLP and taint checks any of which could otherwise
+# have denied this ordinary request first) releases the budget reservation
+# at zero cost and returns upstream_error(e): HTTP 502, a JSON body naming
+# "upstream_error", and, read directly from that function, NO x-fuse-*
+# response header of any kind, unlike every guardrail response the other
+# scenarios in this repository assert on. That absence is not a gap in this
+# drill; it is the first half of the finding step 2 makes explicit.
+#
+# STEP 2: DOES THE REFUSAL REACH THE RECORD, AND DOES ANYBODY GET TOLD
+#
+# This is asserted mechanically, against the real dispatch journal
+# reaction-chain-reaches-heraldyx.yaml already proves this mechanism reaches
+# (heraldyx's source "heraldyx", type "alert_sent" record, read with zero
+# new code via the existing --watch-events mechanism), and it is expected,
+# reliably, to report a Finding. That is the deliverable, not a bug in this
+# scenario. It is not a guess: tokenfuse_core::agent_event::EventType
+# (crates/core/src/agent_event.rs) is a closed, exhaustively read enum of
+# fourteen variants, none named for an unreachable or erroring upstream, and
+# neither of upstream_error's two call sites in proxy.rs calls any emit or
+# Exporter method at all. So no plane's event log, not only heraldyx's own,
+# ever records the FAILURE itself: it is not merely hard to tell apart from a
+# policy refusal in the trail, as the brief asked this drill to check, the
+# failure is ABSENT from the trail altogether, which is the sharper and worse
+# of the two answers. Fixing that is a tokenfuse change (an event type and a
+# call to it on this path), not a gateway configuration an operator can reach
+# for, which is why this Finding belongs to the operator's whole stack and
+# not to a guardrail they forgot to turn on.
+#
+# One precise correction to "the trail is silent", found by firing this at a
+# real gateway rather than only reading the source: if Wardryx is enforcing,
+# it still writes its OWN policy_allow record for this call (source
+# "wardryx", the same evPolicyAllow this repo's other scenarios' evPolicyDeny
+# sits beside in wardryx/internal/api/api.go), because Wardryx runs BEFORE
+# the provider call and this ordinary request clears it. That record is
+# genuinely there; it is severity "info" (below any sane floor, including
+# stack-up's "medium"), and, more importantly, it is IDENTICAL whether the
+# call goes on to succeed or to hit a dead upstream, because Wardryx decides
+# and writes before either outcome exists to be recorded. So it is not
+# evidence against this scenario's finding: it dates the call and says policy
+# had no objection, and it is the last thing the trail says about this run_id
+# either way.
+#
+# WHY THIS FILE IS NOT IN scenarios/ WITH THE OTHER SEVEN
+#
+# Every other shipped scenario's precondition (Wardryx, DLP, the agent
+# firewall) is signalled by an x-fuse-<requires> response header, which is
+# exactly what lets "requires:" tell a genuine gap apart from a feature the
+# operator simply has not turned on (README, "Findings vs. guardrail not
+# configured"). This drill's precondition, an unreachable upstream, has no
+# such header: step 1's own grounding above shows upstream_error's response
+# carries none. So "requires:" cannot express it, and there is no honest way
+# to make a routine `mockryx run ./scenarios` skip this file on an ordinary
+# day when nobody has broken anything on purpose. Rather than invent a
+# fictional signal header or a new scenario field (a new scenario capability,
+# and CLAUDE.md says that is escalate-first territory) to paper over that,
+# this lives in its own directory: internal/scenario.LoadDir reads one
+# directory, not recursively, so a plain `mockryx run ./scenarios` is
+# completely unaffected by this file's presence, exactly as it was before
+# this drill existed. Run it deliberately, on its own, for the duration of a
+# scheduled game day:
+#
+#   mockryx run --gateway http://127.0.0.1:4100 \
+#     --watch-events ~/.stack-up/sent.ndjson scenarios/game-day
+#
+# CREATING THE PRECONDITION
+#
+# Point the gateway's TOKENFUSE_UPSTREAM at an address that will refuse the
+# connection immediately, rather than at a host that will merely hang until
+# TOKENFUSE_UPSTREAM_CONNECT_TIMEOUT_SECS (default 10s) elapses, e.g.
+# TOKENFUSE_UPSTREAM=http://127.0.0.1:1, a port nothing listens on.
+# tokenfuse/crates/gateway/src/main.rs prefers TOKENFUSE_UPSTREAM over
+# TOKENFUSE_ALLOW_STUB whenever the former is set (invariant 16's own startup
+# precondition needs only one of the two), so this alone is enough: no other
+# gateway flag needs to change for this drill.
+name: provider-outage-game-day
+description: >
+  This gateway's upstream is unreachable (an operator-created
+  pre-production precondition, see the header comment). The gateway should
+  degrade with a clean, distinct error rather than hang or invent a
+  successful answer, and the same run's downstream trail should show that
+  a human would have been told. Today it does the first and not the
+  second; this drill exists to keep saying so.
+steps:
+  - name: unreachable-upstream-degrades-cleanly
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "please pull up this afternoon's ticket queue for me"
+    headers:
+      run_id: mockryx-provider-outage-game-day
+      agent_id: agent://mockryx.local/rehearsal/game-day
+      on_behalf_of: "user://mockryx.local/rehearsal-operator"
+      budget_usd: "1.00"
+      task_type: game_day
+    expect:
+      status: 502
+  - name: does-heraldyx-hear-about-it
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "please pull up this afternoon's ticket queue for me"
+    headers:
+      run_id: mockryx-provider-outage-game-day
+      agent_id: agent://mockryx.local/rehearsal/game-day
+      on_behalf_of: "user://mockryx.local/rehearsal-operator"
+      budget_usd: "1.00"
+      task_type: game_day
+    expect:
+      status: 502
+      event:
+        source: heraldyx
+        type: alert_sent
+        within: 15s

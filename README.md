@@ -149,8 +149,8 @@ real spend, remain the evidence for the harness itself.
 <img src="docs/scenarios.png" alt="Five guardrail fire drills: runaway budget against the Breaker, denied tool use, a forged delegation chain and a missing approval against Wardryx, and a secret-leak prompt against DLP. Each card names what the drill asserts must happen, a GAP means a Finding was recorded, and an amber dot marks the two scenarios that have never been fired at a real gateway" width="900">
 </div>
 
-The diagram above predates `verdryx-quality-drift`, the sixth scenario in the table below; it still
-shows the original five.
+The diagram above predates `verdryx-quality-drift`, `injected-page`, `reaction-chain-reaches-heraldyx`
+and the game-day drill below; it still shows the original five.
 
 Mockryx works in four steps:
 
@@ -168,8 +168,8 @@ Mockryx works in four steps:
    (`internal/events`), via `agent-stack-go/event.ChainedWriter`, so a fire
    drill leaves the same kind of audit trail as the guardrails it rehearses.
 
-Six example scenarios ship in `scenarios/`, each rehearsing a different
-guardrail:
+Eight example scenarios ship in `scenarios/`, each rehearsing a different
+guardrail, all loaded together by a plain `mockryx run ./scenarios`:
 
 | File | Rehearses | Requires | Expects |
 | --- | --- | --- | --- |
@@ -179,10 +179,39 @@ guardrail:
 | `approval-required.yaml` | A high-cost action submitted with no approval token | `wardryx` | `403` + `x-fuse-wardryx: hold` |
 | `dlp-secret-leak.yaml` | A prompt that embeds what looks like a live credential | `dlp` | `403` |
 | `verdryx-quality-drift.yaml` | The same denied tool-use attempt as `wardryx-denied-tool.yaml`, plus Verdryx's off-path reaction to it | `wardryx` | `403` + `x-fuse-wardryx: deny`, and a `verdryx`/`quality_drift` event within 10s (see [Async reaction checks](#async-reaction-checks)) |
+| `injected-page.yaml` | An agent reads a web page that instructs it to exfiltrate data, then tries to; the firewall should refuse on the context's taint labels, not on the wording | `taint` | `403`, and a `tokenfuse`/`taint_block` event within 10s |
+| `reaction-chain-reaches-heraldyx.yaml` | The same denied tool-use attempt, chased three hops instead of one: the in-path refusal, Wardryx's own off-path record of it, and heraldyx's actual notification, all correlated by one run_id across two steps | `wardryx` | `403` + `x-fuse-wardryx: deny`, a `wardryx`/`policy_deny` event within 10s, then a `heraldyx`/`alert_sent` event within 20s |
 
 `dlp-secret-leak.yaml` uses `AKIAIOSFODNN7EXAMPLE`, AWS's own well-known,
 publicly documented, non-functional placeholder access key ID (used
 throughout AWS's documentation), never a real credential.
+
+### The game-day drill: `scenarios/game-day/`
+
+One more scenario, `scenarios/game-day/provider-outage.yaml`, rehearses a
+provider outage: a gateway an operator has deliberately pointed at an
+upstream that will refuse the connection. It lives outside `scenarios/` on
+purpose and a plain `mockryx run ./scenarios` never loads it
+(`internal/scenario.LoadDir` reads one directory, not recursively), because
+its precondition, unlike Wardryx or DLP, is never signalled by an
+`x-fuse-*` response header, so `requires:` cannot tell "not configured" apart
+from "the operator hasn't broken their upstream today", and a routine CI run
+would otherwise see a false gap every ordinary day. Run it deliberately, for
+the duration of a scheduled game day:
+
+```sh
+./bin/mockryx run --gateway http://127.0.0.1:4100 \
+  --watch-events /path/to/heraldyx/sent.ndjson \
+  scenarios/game-day
+```
+
+The scenario file's own header comment is the full write-up: what it checks
+(a clean, distinct degrade status), what it expects to find as a standing
+Finding today (no plane's event log, and so no notification, ever reflects
+this failure, which is a real gap in the operator's stack rather than a
+misconfigured guardrail), and what it deliberately does not rehearse (a
+provider that is reachable but answers with an error status, rather than
+unreachable outright).
 
 ### Findings vs. "guardrail not configured"
 
@@ -586,7 +615,7 @@ or unwritable events path never blocks a run.
 - [x] human + JSON report rendering, save/load (`mockryx report`)
 - [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.ChainedWriter` (SPEC 6.5 prev_hash chain), opt-in (`MOCKRYX_EVENTS_PATH`)
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
-- [x] six shipped example scenarios: `runaway-budget` (core Breaker), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` (DLP), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction)
+- [x] eight shipped example scenarios in `scenarios/`: `runaway-budget` (core Breaker), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` (DLP), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction), `injected-page` (the agent firewall, taint labels not wording), `reaction-chain-reaches-heraldyx` (Wardryx's in-path deny, its own off-path record, and heraldyx's actual notification, all three); plus one game-day drill outside `scenarios/`, `scenarios/game-day/provider-outage.yaml`, for a deliberately unreachable upstream
 - [x] `agent-stack-go` v0.4.0 pinned dependency, no local `replace`
 - [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`); exercised by `scripts/selftest.sh` both ways (a matching event found, a missing one reported as a `Finding`), and shipped in `verdryx-quality-drift.yaml`
 - [ ] Later: additional built-in scenario packs, as new guardrails ship in TokenFuse / Wardryx
