@@ -584,7 +584,7 @@ or unwritable events path never blocks a run.
   per step invocation, so unrelated steps and separate `mockryx run`
   invocations never collide.
 - **`agent-stack-go` is a tagged dependency.** `go.mod` requires
-  `github.com/TAIPANBOX/agent-stack-go v0.7.0` straight from the module
+  `github.com/TAIPANBOX/agent-stack-go v0.8.0` straight from the module
   proxy: no `replace`, no local checkout. `.github/workflows/ci.yml` does a
   single `actions/checkout` per job, the same as any other Go module.
 - **YAML is the one dependency beyond `agent-stack-go`.** `gopkg.in/yaml.v3`
