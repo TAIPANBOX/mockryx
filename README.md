@@ -110,12 +110,14 @@ Run the whole open stack locally with one command via [**stack-up**](https://git
 
 Before any public launch, Mockryx ran its fire-drills in their intended mode - a real gateway in front of
 a stub provider - on two separate campaigns: 3 scenarios, 3 held, 0 defensive gaps, $0 real spend, both
-times. Those three were `runaway-budget`, `wardryx-denied-tool` and `dlp-secret-leak`. Six ship today:
-`on-behalf-of-forged-chain`, `approval-required`, and `verdryx-quality-drift` were written after those
-campaigns and have never been fired at a real gateway (`verdryx-quality-drift` also depends on a real
-Verdryx reacting off path, which no campaign so far has included). What holds them is
-`scripts/selftest.sh`, which proves a scenario can SEE its guardrail missing, not that the guardrail
-holds. Those are different claims and only the first one covers all six.
+times. Those three were `runaway-budget`, `wardryx-denied-tool` and `dlp-secret-leak`, and they are what
+that "0 gaps" covers. The scenarios written since were fired locally instead, on 2026-08-25 and again on
+2026-08-26 against a gateway, a Wardryx and a heraldyx built from each repository's current `main`. That
+run is not a clean sweep and is more useful for it: six of the eight in `scenarios/` passed,
+`verdryx-quality-drift` reported its standing gap (nothing in Verdryx emits the event it waits for), and
+`injected-page` turned out to be unable to reach the guardrail it names at all, reporting "not
+configured" against a firewall that was enforcing. Both are written up, with the wire evidence, in
+[`VALIDATION.md`](VALIDATION.md).
 
 ![Mockryx pre-prod rehearsal: 3 drills run against a real gateway, 3 held, 0 defensive gaps, $0 real spend](assets/13-mockryx.png)
 
@@ -186,6 +188,14 @@ guardrail, all loaded together by a plain `mockryx run ./scenarios`:
 publicly documented, non-functional placeholder access key ID (used
 throughout AWS's documentation), never a real credential.
 
+**One of these eight cannot currently fire, and says so.** `injected-page.yaml`
+reports `skipped_not_configured` even against a gateway whose agent firewall is
+in `enforce` mode: the firewall judges the tools a model actually INVOKES, and a
+scenario can only declare tools, so the drill never reaches it. The scenario
+file's own header carries the measurement and the wire evidence. Read a skip
+there as "not measured", never as "the firewall is off", until the format can
+express what that drill needs.
+
 ### The game-day drill: `scenarios/game-day/`
 
 One more scenario, `scenarios/game-day/provider-outage.yaml`, rehearses a
@@ -206,12 +216,13 @@ the duration of a scheduled game day:
 ```
 
 The scenario file's own header comment is the full write-up: what it checks
-(a clean, distinct degrade status), what it expects to find as a standing
-Finding today (no plane's event log, and so no notification, ever reflects
-this failure, which is a real gap in the operator's stack rather than a
-misconfigured guardrail), and what it deliberately does not rehearse (a
-provider that is reachable but answers with an error status, rather than
-unreachable outright).
+(a clean, distinct degrade status, and whether the same run's trail ever
+reaches a human), and what it deliberately does not rehearse (a provider that
+is reachable but answers with an error status, rather than unreachable
+outright). It was written as a standing Finding, because no plane's event log
+reflected the failure at all; tokenfuse now emits `dependency_failed` on that
+path and heraldyx mails it, so as of 2026-08-26 the drill passes and has become
+a regression guard on the chain that tells you your provider is down.
 
 ### Findings vs. "guardrail not configured"
 

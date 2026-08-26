@@ -187,6 +187,34 @@ assert m, "no test badge in README.md"
 open("README.md","w").write(s.replace(m.group(0), "badge/tests-%d-" % (int(m.group(1))+7), 1))')" \
 	"the badge says"
 
+# The catalog table, both directions, because they fail for different reasons.
+# A shipped scenario with no row is a drill an operator is never told about; a
+# row with no file is a drill they go looking for and cannot find.
+run_case "readme-numbers: a shipped scenario missing from the catalog" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'import re
+s = open("README.md").read()
+rows = [l for l in s.splitlines() if l.startswith("| `reaction-chain-reaches-heraldyx.yaml`")]
+assert rows, "no catalog row for reaction-chain-reaches-heraldyx.yaml"
+open("README.md","w").write(s.replace(rows[0] + "\n", "", 1))')" \
+	"ships and is not in the README catalog table"
+
+run_case "readme-numbers: a catalog row for a scenario that does not ship" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'edit("README.md", "| `dlp-secret-leak.yaml` |", "| `dlp-secret-leek.yaml` |")')" \
+	"and scenarios/ has no such file"
+
+# The shape this actually arrives in: a commit adds a scenario file and never
+# opens the README. Nothing else in the suite, the linters or CI reads that
+# table, so without this the drill ships undocumented and CI stays green.
+run_case "readme-numbers: a scenario ships and the count sentence does not move" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'import pathlib
+p = pathlib.Path("scenarios/planted-by-the-teeth-harness.yaml")
+assert not p.exists(), "the harness left a planted scenario behind"
+p.write_text("name: planted\nsteps: []\n")')" \
+	"example scenarios ship in"
+
 run_case "reproducible-build: the workflow loses a build flag" fail \
 	'./scripts/reproducible-build.sh' \
 	"$(py 'edit(".github/workflows/release.yml", "go build -trimpath", "go build")')" \
@@ -208,6 +236,26 @@ run_case "readme-numbers: a badge-shaped number elsewhere in the README" pass \
 	'./scripts/readme-numbers.sh' \
 	"$(py 'edit("README.md", "## ", "Once badge/tests-11- was the figure, long ago.\n\n## ")')"
 
+# The catalog check anchors its rows at the start of a line, so prose that
+# happens to quote a row does not become one. Without the anchor this sentence
+# would invent a scenario that does not ship and fail the gate on nothing.
+run_case "readme-numbers: a catalog-row-shaped line inside a sentence" pass \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'edit("README.md", "## Install / build", "Once we wrote | `ghost-drill.yaml` | nothing | none | none | in a note.\n\n## Install / build")')"
+
+# Order is not a claim: the table says which drills exist, never in what
+# sequence. A gate that failed on a reordering would be teaching people to
+# leave the table alone, which is the opposite of what it is for.
+run_case "readme-numbers: two catalog rows swapped" pass \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'lines = open("README.md").read()
+a = [l for l in lines.splitlines() if l.startswith("| `dlp-secret-leak.yaml`")]
+b = [l for l in lines.splitlines() if l.startswith("| `approval-required.yaml`")]
+assert a and b, "the two rows this case swaps are not both in the table"
+s = lines.replace(a[0], "@@SWAP@@", 1).replace(b[0], a[0], 1).replace("@@SWAP@@", b[0], 1)
+assert s != lines
+open("README.md","w").write(s)')"
+
 echo
 echo "=== and the one this estate learned the hard way ==="
 echo "    a gate whose subject is gone must SAY so, not report OK on nothing"
@@ -220,6 +268,31 @@ m = re.search(r"badge/tests-\d+-", s)
 assert m, "no test badge in README.md"
 open("README.md","w").write(s.replace(m.group(0), "badge/nothing-", 1))')" \
 	"nothing to compare against"
+
+run_case "readme-numbers: no catalog table left to compare against" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'import re
+s = open("README.md").read()
+new = re.sub(r"^\| `[a-z0-9-]+\.yaml` \|", "| a drill |", s, flags=re.M)
+assert new != s, "there was no catalog table to take away"
+open("README.md","w").write(new)')" \
+	"no longer prints a scenario catalog table"
+
+# The other half of the same subject. An empty scenarios/ satisfies every
+# comparison the catalog check makes trivially, so without this branch the gate
+# would report the README perfectly consistent with nothing at all.
+run_case "readme-numbers: no scenarios left to compare the catalog against" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'import os, pathlib
+stash = pathlib.Path("scenarios-stashed-by-the-teeth-harness")
+assert not stash.exists(), "the harness left a stash behind"
+stash.mkdir()
+moved = 0
+for p in sorted(pathlib.Path("scenarios").glob("*.yaml")):
+    os.rename(p, stash / p.name)
+    moved += 1
+assert moved, "there were no scenarios to take away"')" \
+	"holds no scenario files at all"
 
 run_case "reproducible-build: no build command left to read" fail \
 	'./scripts/reproducible-build.sh' \

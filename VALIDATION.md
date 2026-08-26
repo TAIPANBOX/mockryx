@@ -52,16 +52,17 @@ zero through. This is `wardryx-denied-tool`'s property under a failure mode no d
 ## What this does not cover
 
 This page is a record of two campaigns, and it stays true about the moment it describes rather than
-about the repository today. Nine scenarios ship now: `on-behalf-of-forged-chain`,
-`approval-required`, `verdryx-quality-drift` and `injected-page` were written after these runs and
-have never been fired at a real gateway
-(`verdryx-quality-drift` also depends on a real Verdryx reacting off path, and `injected-page`
-depends on the agent firewall being in `enforce` mode, neither of which either campaign included).
-What holds those four is `scripts/selftest.sh`, which proves a scenario can SEE its guardrail
-missing, not that the guardrail holds. Anyone citing "0 gaps" should cite it for the three that were
-actually fired, not for these. `reaction-chain-reaches-heraldyx` and `provider-outage-game-day`,
-added 2026-08-25, are covered by the section below instead: both were fired at a real, local gateway
-before this sentence was written, not deferred to `scripts/selftest.sh` the way the four above were.
+about the repository today. Nine scenarios ship now, and the two campaigns above exercised three of
+them. `on-behalf-of-forged-chain`, `approval-required`, `verdryx-quality-drift` and `injected-page`
+were written afterwards and neither campaign included them, so nobody should read "0 gaps" as
+covering those: cite it for the three that were actually fired on Hetzner.
+
+Those four have since been fired locally instead, twice, on 2026-08-25 and again on 2026-08-26, in
+the two sections below. That is different infrastructure and a shorter run, and it is still a real
+gateway with real enforcement rather than `scripts/selftest.sh`, which proves only that a scenario
+can SEE its guardrail missing. Two of the four came back with something to say and are written up
+below: `verdryx-quality-drift` fails because nothing emits the event it waits for, and
+`injected-page` cannot reach the guardrail it names at all.
 
 ## Local stack-up validation, 2026-08-25
 
@@ -122,6 +123,64 @@ was still on disk and still matched. This is not unique to the two scenarios add
 day a real Verdryx starts writing `quality_drift` for real. An operator re-running any
 `expect.event` scenario against the same watched log more than once should expect its async half to
 keep passing on old evidence once it has passed for real, until that log rotates.
+
+## Every shipped scenario, fired at a real gateway, 2026-08-26
+
+The section above was a stack-up run against binaries installed on this machine over several days.
+This one is narrower on purpose and answers a question that one leaves open: what do the drills do
+against the CURRENT `main` of the products they rehearse. Each plane was extracted with
+`git archive origin/main` and built from that source into a scratch directory, so the commit behind
+every result below is named: tokenfuse `33dbfd2`, wardryx `bc0cbe8`, heraldyx `d6292c3`, mockryx at
+this branch. Gateway on `127.0.0.1:14100` with `TOKENFUSE_ALLOW_STUB=1` (no provider, no API key, no
+network), `TOKENFUSE_MODE=enforce`, `TOKENFUSE_WARDRYX_MODE=enforce` against a real Wardryx on
+`:18090` carrying the same demo policy stack-up seeds, DLP at its shipped default, and heraldyx
+reading the same event directory with `HERALDYX_MIN_SEVERITY=medium` in file-mail mode. Five
+configurations, each with its own fresh journals.
+
+**All eight of `scenarios/`, healthy stack: six passed, one gap, one skip, exit 1.** `passed` for
+`approval-required`, `dlp-secret-leak`, `on-behalf-of-forged-chain`, `reaction-chain-reaches-heraldyx`,
+`runaway-budget` and `wardryx-denied-tool`; `failed` for `verdryx-quality-drift` with the one Finding
+this page already records (no `verdryx`/`quality_drift` event within 10s, because nothing in Verdryx
+emits that type); `skipped_not_configured` for `injected-page`. Total spend $0.0056, all of it the
+gateway's own invented stub pricing. The reaction chain's three hops all landed: `403` +
+`x-fuse-wardryx: deny`, two `wardryx`/`policy_deny` lines under one minted run_id, one heraldyx
+`alert_sent` for the same run, and a mail reading "was denied by policy".
+
+**The same eight with `TOKENFUSE_FIREWALL=enforce`: byte for byte the same verdicts.** Including
+`injected-page`, still `skipped_not_configured`, against a gateway whose startup line says
+`agent firewall mode=Enforce`. That is the finding below, and it is also the reassurance that turning
+the firewall on perturbs none of the other seven drills.
+
+**`injected-page` cannot reach the guardrail it names, and reports "not configured" for a firewall
+that is enforcing.** Proven on the wire against the same gateway, with a stub upstream that can
+return a real `tool_use` block. Sent exactly as mockryx sends it: `200`, no `x-fuse-taint` header,
+which is the same answer the firewall gives when it is switched off. With the model actually invoking
+`http_post` but the run unlabelled: `200`, still no header, because DECLARING a tool in `tools[]`
+taints nothing (`taint::tool_names_in` reads INVOKED tools; the declared array is read by
+`tool_names_declared`, which only the Wardryx hook calls). With the run labelled, either by an
+`x-fuse-taint: web` request header or by an earlier turn in the same run invoking `fetch_url`:
+`403` + `x-fuse-taint: blocked: tainted context [web] denies capability [network_egress]`, plus the
+`tokenfuse`/`taint_block` event the scenario expects. So the firewall works, `requires: taint` is
+circular for this drill (the header is only ever stamped on the block itself), and the drill is
+unfireable from a scenario file as the format stands. The scenario's own header comment now says all
+of this; closing it needs a new scenario capability, which is escalate-first.
+
+**`provider-outage-game-day` passes now, exit 0, and is a regression guard rather than a standing
+Finding.** Same stack with `TOKENFUSE_UPSTREAM=http://127.0.0.1:1`: `502` on both steps, and this
+time the trail is not silent. The gateway wrote one `dependency_failed` (severity high,
+`{"dependency":"provider","stage":"send","effect":"call_failed","detail":"upstream request failed:
+error sending request for url (http://127.0.0.1:1/)"}`) per call, and heraldyx wrote one `alert_sent`
+for the same run_id and a mail subject reading "could not be served, because a dependency of this box
+failed". The gap this drill was written to keep saying was closed in tokenfuse and heraldyx, not
+here; the section above this one, written on 2026-08-25, is what it was true of.
+
+**The reaction chain goes red when the chain breaks, and green when only the mail does.** With
+heraldyx stopped, step 1 still passed and step 2 reported exactly its own Finding, naming
+`heraldyx`/`alert_sent` and the minted run_id, exit 1. With heraldyx running but its mail file inside
+a directory that does not exist, so every delivery failed, the scenario PASSED, exit 0: heraldyx
+journals `alert_sent` with `"outcome": "refused"` whether the send worked or not, and mockryx matches
+on source, type and run_id only. Step 2 therefore proves heraldyx reacted and tried, not that a human
+was told. That limit is now written into the scenario file.
 
 ## Method (the Hetzner campaigns above)
 

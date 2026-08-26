@@ -94,6 +94,32 @@
 # matches purely on source/type/run_id and has never cared which product
 # wrote the line.
 #
+# WHAT THIS DOES NOT PROVE: THAT THE MAIL WAS ACTUALLY DELIVERED
+#
+# Step 2 asserts a heraldyx "alert_sent" record for this run, and that record
+# is written whether the delivery SUCCEEDED or FAILED. heraldyx's deliver_ in
+# cmd/heraldyx/main.go calls sender.Send, logs an error if it comes back, and
+# then journals the dispatch either way, carrying the outcome:
+# record.Journal.Sent writes data.outcome "accepted" normally and "refused"
+# with the error text when Send failed. internal/watch.FileWatcher matches on
+# source, type and run_id only, and the scenario format has no way to assert on
+# an event's data, so both look identical from here.
+#
+# Measured 2026-08-26, by breaking it on purpose rather than by reading the
+# source: heraldyx started with HERALDYX_MAIL_FILE pointing inside a directory
+# that does not exist, so every delivery failed with "deliver: open ...: no such
+# file or directory". This scenario still came back PASSED, exit 0, while the
+# dispatch journal held
+# {"outcome": "refused", "error": "deliver: open ...", "transport": "file"}
+# and no mail file existed anywhere on disk.
+#
+# So read step 2 as "heraldyx saw the record and tried to tell somebody", which
+# is the third hop this drill exists to chase and is genuinely more than the
+# gateway's own answer. It is not "a human was told". Closing that gap needs an
+# expect.event able to assert on the event's data, which is a new scenario
+# capability and therefore escalate-first under CLAUDE.md, not something to add
+# here quietly.
+#
 # Wardryx is an optional gateway feature, so this scenario declares
 # "requires: wardryx", exactly like wardryx-denied-tool.yaml: if the tested
 # gateway never once stamps an x-fuse-wardryx header, both steps' status

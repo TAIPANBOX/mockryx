@@ -20,7 +20,7 @@
 # WHAT IS ACTUALLY BEING REHEARSED, AND IT IS NOT TEXT MATCHING
 #
 # The agent firewall does not read the injection. It reads the LABELS on the
-# context: a request that declares `fetch_url` has touched the web, and the
+# context: a run that has touched the web carries the `web` label, and the
 # starter policy denies `network_egress` to a web-tainted context. So the
 # refusal below does not depend on recognising the wording, on the language it
 # was written in, or on it being written in prose at all.
@@ -34,29 +34,83 @@
 # WHY IT DECLARES BOTH TOOLS
 #
 # `fetch_url` is a taint SOURCE (it maps to the `web` label) and `http_post` is
-# a CAPABILITY (it maps to `network_egress`). One without the other is not a
-# drill: a web-tainted context that asks for nothing is allowed and should be,
-# and an egress capability with no taint is ordinary work. The firewall fires on
-# the pair, which is exactly the shape a real injected page produces: read
-# something, then act on what it said.
+# a CAPABILITY (it maps to `network_egress`). One without the other is not the
+# shape being rehearsed: a web-tainted context that asks for nothing is allowed
+# and should be, and an egress capability with no taint is ordinary work. The
+# firewall fires on the pair, which is exactly the shape a real injected page
+# produces: read something, then act on what it said.
 #
 # `fetch_url` is the tool scopyx publishes, so this is the same name a governed
 # fetch actually carries. It is in the gateway's default taint sources map
 # already, which is why scopyx chose those names rather than its own.
 #
-# `requires: taint` IS THE RED-FIRST GUARD
+# THIS DRILL CANNOT REACH THE GUARDRAIL IT DESCRIBES, MEASURED 2026-08-26
 #
-# The runner watches every response for the `x-fuse-taint` header family. The
-# gateway stamps it when the firewall is on, in every mode: `blocked: <reason>`
-# when it refuses, `would-block: <note>` in shadow, and the plain label when a
-# tainted context is allowed through. With `TOKENFUSE_FIREWALL=off` it is never
-# stamped at all, and mockryx then reports "guardrail not configured" instead of
-# a failure.
+# Everything above is a true description of the agent firewall. None of it is
+# reachable from a scenario file as the format stands, and the four paragraphs
+# this section replaces said otherwise. What follows was established on the
+# wire, against a gateway built from tokenfuse 33dbfd2 with
+# TOKENFUSE_FIREWALL=enforce, not read off the source alone.
 #
-# So this scenario cannot pass by accident against a gateway with the firewall
-# off, and it cannot fail dishonestly there either. Run it that way first: a
-# drill that reports the same thing whether the guardrail exists or not is not
-# a drill.
+#   - Sent exactly as mockryx sends it, this request comes back `200` with no
+#     `x-fuse-taint` header of any kind, so mockryx reports
+#     `skipped_not_configured`: the same verdict, word for word, that it gives
+#     against a gateway with the firewall switched off.
+#
+# Two independent reasons, either one of which is enough:
+#
+#   1. DECLARING a tool taints nothing. `tokenfuse_core::taint::tool_names_in`
+#      reads tools that were INVOKED (Anthropic `tool_use` blocks, OpenAI
+#      `tool_calls`); the top-level `tools[]` array a request declares is read
+#      by a different function, `tool_names_declared`, which the firewall path
+#      never calls (it is the Wardryx `deny_tool` hook's input, which is why
+#      wardryx-denied-tool.yaml works and this does not). So `fetch_url` in the
+#      block below contributes no `web` label, and the run stays unlabelled.
+#   2. The firewall judges the MODEL'S RESPONSE, in `proxy.rs`'s
+#      `buffered_managed`: it asks which capabilities the returned `tool_use`
+#      blocks exercise. Against the fake/echo provider every scenario here
+#      assumes, and against the gateway's own `TOKENFUSE_ALLOW_STUB=1`, the
+#      response is plain text and requests no capability at all, so there is
+#      nothing for the rule to deny.
+#
+# Both were confirmed by making the drill fire: with a stub upstream that
+# answers with a real `tool_use` block for `http_post`, and the run labelled
+# either by an `x-fuse-taint: web` request header or by an earlier turn in the
+# same run that invoked `fetch_url`, the gateway answers
+# `403` + `x-fuse-taint: blocked: tainted context [web] denies capability
+# [network_egress]` and writes the `tokenfuse`/`taint_block` event this
+# scenario expects. The guardrail holds. This file cannot ask it to.
+#
+# `requires: taint` IS NOT THE RED-FIRST GUARD IT SAYS IT IS
+#
+# The runner watches every response for the `x-fuse-taint` header family, and
+# the paragraph that stood here claimed the gateway stamps that header in every
+# mode, including a plain label when a tainted context is allowed through.
+# There is no such stamp. `proxy.rs` writes `x-fuse-taint` in exactly two
+# places: `firewall_block`, which is the 403 itself, and the shadow-mode
+# `would-block:` note. So the signal appears only on the response that would
+# already have made this drill pass, which makes the guard circular: with the
+# firewall enforcing and this drill unable to reach it, the header never
+# appears, and `skipped_not_configured` is reported for a guardrail that is
+# configured, enforcing, and working.
+#
+# That is the exact failure CLAUDE.md invariant 2 exists to forbid, and it is
+# the worse direction of it: a scenario that cannot see its own guardrail
+# PRESENT. `scripts/selftest.sh` does not catch it, because both of its stubs
+# answer 200 and it only ever asks whether a scenario can report a gap.
+#
+# WHAT WOULD FIX IT, AND WHY IT IS NOT FIXED HERE
+#
+# The scenario format has no field for an arbitrary request header, so there is
+# no way to send `x-fuse-taint: web` from a scenario file, and no scenario can
+# make a provider invoke a tool. Closing this needs a new scenario capability,
+# and CLAUDE.md is explicit that a new scenario capability is a product
+# decision to escalate rather than an implementation detail to add. So this
+# file keeps its meaning (invariant 5: a scenario's meaning must not change
+# under an operator who pinned a version) and states the limit instead.
+#
+# Until then, read a `skipped_not_configured` here as "not measured", never as
+# "the firewall is off".
 name: injected-page
 requires: taint
 description: >
