@@ -49,46 +49,56 @@
 # reservation, Wardryx, DLP and taint checks any of which could otherwise
 # have denied this ordinary request first) releases the budget reservation
 # at zero cost and returns upstream_error(e): HTTP 502, a JSON body naming
-# "upstream_error", and, read directly from that function, NO x-fuse-*
-# response header of any kind, unlike every guardrail response the other
-# scenarios in this repository assert on. That absence is not a gap in this
-# drill; it is the first half of the finding step 2 makes explicit.
+# "upstream_error", and, read directly from that function and confirmed on the
+# wire, NO x-fuse-* response header of any kind, unlike every guardrail
+# response the other scenarios in this repository assert on. That absence is
+# why this drill cannot use "requires:" (see the last section), and it is not
+# itself a gap: the record of the failure is written to the event log rather
+# than stamped on the response, which is step 2's subject.
 #
 # STEP 2: DOES THE REFUSAL REACH THE RECORD, AND DOES ANYBODY GET TOLD
 #
 # This is asserted mechanically, against the real dispatch journal
 # reaction-chain-reaches-heraldyx.yaml already proves this mechanism reaches
 # (heraldyx's source "heraldyx", type "alert_sent" record, read with zero
-# new code via the existing --watch-events mechanism), and it is expected,
-# reliably, to report a Finding. That is the deliverable, not a bug in this
-# scenario. It is not a guess: tokenfuse_core::agent_event::EventType
-# (crates/core/src/agent_event.rs) is a closed, exhaustively read enum of
-# fourteen variants, none named for an unreachable or erroring upstream, and
-# neither of upstream_error's two call sites in proxy.rs calls any emit or
-# Exporter method at all. So no plane's event log, not only heraldyx's own,
-# ever records the FAILURE itself: it is not merely hard to tell apart from a
-# policy refusal in the trail, as the brief asked this drill to check, the
-# failure is ABSENT from the trail altogether, which is the sharper and worse
-# of the two answers. Fixing that is a tokenfuse change (an event type and a
-# call to it on this path), not a gateway configuration an operator can reach
-# for, which is why this Finding belongs to the operator's whole stack and
-# not to a guardrail they forgot to turn on.
+# new code via the existing --watch-events mechanism).
 #
-# One precise correction to "the trail is silent", found by firing this at a
-# real gateway rather than only reading the source: if Wardryx is enforcing,
-# it still writes its OWN policy_allow record for this call (source
-# "wardryx", the same evPolicyAllow this repo's other scenarios' evPolicyDeny
-# sits beside in wardryx/internal/api/api.go), because Wardryx runs BEFORE
-# the provider call and this ordinary request clears it. That record is
-# genuinely there; it is severity "info" (below any sane floor, including
-# stack-up's "medium"), and, more importantly, it is IDENTICAL whether the
-# call goes on to succeed or to hit a dead upstream, because Wardryx decides
-# and writes before either outcome exists to be recorded. So it is not
-# evidence against this scenario's finding: it dates the call and says policy
-# had no objection, and it is the last thing the trail says about this run_id
-# either way.
+# THIS STEP WAS A STANDING FINDING AND IS NOT ONE ANY MORE, MEASURED
+# 2026-08-26. When this file was written, tokenfuse_core::agent_event::EventType
+# was a closed enum of fourteen variants with none named for a failed
+# dependency, and neither of upstream_error's call sites in proxy.rs emitted
+# anything at all, so the failure was absent from every plane's log and this
+# step reported a Finding by design. Both halves have since changed, in the
+# repositories where the fix belonged rather than here:
 #
-# WHY THIS FILE IS NOT IN scenarios/ WITH THE OTHER SEVEN
+#   - tokenfuse emits `dependency_failed` (severity high, carrying
+#     dependency/stage/effect/detail) on exactly this path, from the Err arm of
+#     st.provider.send in proxy.rs, before returning upstream_error;
+#   - heraldyx renders that type and mails it.
+#
+# Fired end to end against a gateway built from tokenfuse 33dbfd2, wardryx
+# bc0cbe8 and heraldyx d6292c3, with TOKENFUSE_UPSTREAM=http://127.0.0.1:1,
+# this scenario now passes, exit 0: one `dependency_failed` per call in the
+# gateway's own event log, and one heraldyx `alert_sent` for the same run_id,
+# whose mail reads "could not be served, because a dependency of this box
+# failed". So the drill has turned from a standing Finding into a regression
+# guard, which is what a drill is for. A Finding here now means the chain that
+# tells a human their provider is unreachable has broken since.
+#
+# One thing this drill never depended on, kept because it is still true and
+# still easy to mistake for the answer: if Wardryx is enforcing, it writes its
+# OWN policy_allow record for this call (source "wardryx", the same
+# evPolicyAllow this repo's other scenarios' evPolicyDeny sits beside in
+# wardryx/internal/api/api.go), because Wardryx runs BEFORE the provider call
+# and this ordinary request clears it. That record is severity "info" (below
+# any sane floor, including stack-up's "medium"), and it is IDENTICAL whether
+# the call goes on to succeed or to hit a dead upstream, because Wardryx
+# decides and writes before either outcome exists to be recorded. It dates the
+# call and says policy had no objection, and it says nothing whatever about the
+# upstream. It is not what makes this step pass; the gateway's own
+# `dependency_failed` is.
+#
+# WHY THIS FILE IS NOT IN scenarios/ WITH THE OTHERS
 #
 # Every other shipped scenario's precondition (Wardryx, DLP, the agent
 # firewall) is signalled by an x-fuse-<requires> response header, which is
@@ -126,8 +136,8 @@ description: >
   pre-production precondition, see the header comment). The gateway should
   degrade with a clean, distinct error rather than hang or invent a
   successful answer, and the same run's downstream trail should show that
-  a human would have been told. Today it does the first and not the
-  second; this drill exists to keep saying so.
+  a human would have been told. Both held on 2026-08-26; before that the
+  second did not, and this drill is what said so.
 steps:
   - name: unreachable-upstream-degrades-cleanly
     request:

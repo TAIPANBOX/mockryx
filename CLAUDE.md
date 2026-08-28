@@ -165,8 +165,8 @@ an absent invariant.
    mutations that changed no bytes, and three of the five had been verified by
    hand against the same gate minutes earlier. So every mutation asserts it
    applied: a case whose edit changed nothing is a failure here, not a pass.
-   *(gate: `scripts/gates-have-teeth.sh`, 11 cases: five real faults each gate
-   must catch, two non-faults they must not, and four subjects taken away
+   *(gate: `scripts/gates-have-teeth.sh`, 18 cases: eight real faults each gate
+   must catch, four non-faults they must not, and six subjects taken away
    entirely, where the gate must say it measured nothing rather than report OK.
    `selftest.sh` gets one case rather than several because it builds the binary
    and stands up a stub gateway; the one it gets is the property it names
@@ -176,6 +176,24 @@ an absent invariant.
    fail. It proves each gate catches the faults named in it, not every fault of
    that kind. It found no hole in any of the four, which is the result to
    expect from a ratchet on the day it is installed.
+
+10. **Every scenario that ships is named in the README's catalog table, and
+    every row in that table is a scenario that ships.** The scenarios are the
+    product as much as the runner is, and that table is the only place in this
+    repository that lists them all, so a drill missing from it is a drill an
+    operator never runs, and a row with no file is worse: it tells a reader a
+    guardrail is rehearsed when nothing rehearses it. This held by hand until
+    2026-08-26, which is not evidence a check is unnecessary; it is the state
+    the test badge was in the day before it went stale. A scenario arrives in a
+    commit that adds one YAML file, and neither the suite nor CI reads prose.
+    *(gate: `scripts/readme-numbers.sh`, both directions, plus the prose count
+    above the table checked against the files rather than the rows. Top level
+    only: `scenarios/game-day/` is deliberately outside that table, because
+    `LoadDir` does not recurse. Verified by breaking, five ways: a row deleted,
+    a row renamed to a file that does not exist, a scenario file planted with
+    the README untouched, the whole table taken away, and `scenarios/` emptied.
+    The last two must report that they measured nothing rather than pass, and
+    each of the five has a case in `scripts/gates-have-teeth.sh`.)*
 
 ## Decisions that have no gate yet
 
