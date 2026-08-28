@@ -24,7 +24,7 @@
 # fifteen times slower).
 #
 # Measured 2026-08-03 on an Ubuntu node whose docker had no buildx.
-ARG GO_VERSION=1.26
+ARG GO_VERSION=1.27
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
 ENV GOTOOLCHAIN=auto

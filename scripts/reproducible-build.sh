@@ -20,6 +20,10 @@
 # Measured on two sibling services on 2026-08-05, which is why this is applied
 # here rather than hoped for: qryx v0.3.0 and idryx v0.3.0 each rebuild to their
 # published darwin/arm64 artifact byte for byte from a different host OS.
+# Both were built with go1.26.5, which is what `go.mod` pinned at those tags:
+# a digest is only meaningful next to the toolchain that made it, and this
+# repository has since moved to go1.27.0, so a rebuild today gives other bytes
+# without anything being wrong.
 #
 # WHAT THIS CHECKS, AND WHAT IT CANNOT
 #
