@@ -48,7 +48,7 @@ jobs:
           # Matches `toolchain` in go.mod. setup-go v6 pins GOTOOLCHAIN=local,
           # so a disagreement here stops being a silent extra download and
           # becomes a hard failure.
-          go-version: "1.26.7"
+          go-version: "1.27.0"
           cache: true
 
       # The three flags are what let somebody rebuild a published binary and

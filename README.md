@@ -5,7 +5,7 @@
 **Rehearse hostile scenarios against your own TokenFuse gateway and confirm every guardrail holds before production.**
 
 [![CI](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml)
-![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)
+![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
 ![tests](https://img.shields.io/badge/tests-95-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-1%20(mvp)-success.svg)
@@ -499,7 +499,7 @@ not a different program.
 
 ### Build from source
 
-Requires Go 1.26+. Mockryx depends on
+Requires Go 1.27+. Mockryx depends on
 [`github.com/TAIPANBOX/agent-stack-go`](https://github.com/TAIPANBOX/agent-stack-go)
 at its tagged `v0.7.0` release, resolved from the module proxy like any other
 Go dependency: no local `replace`, no sibling checkout needed.
