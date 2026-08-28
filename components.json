@@ -1,0 +1,68 @@
+{
+  "$comment": [
+    "What this repository contributes to a running stack, and what a check may",
+    "believe about it. `checked` is proved against this repository by",
+    "internal/manifest/manifest_test.go in this repository's own CI; `declared` is",
+    "a statement nobody can verify and carries its own `why`.",
+    "",
+    "THE FACT WORTH DECLARING HERE IS THE EXIT-CODE CONTRACT, BECAUSE ANOTHER",
+    "REPOSITORY READS IT. stack-up's routine dispatches on it: 0 is ok, 1 is",
+    "findings, and anything else is an error the operator is shown. So the",
+    "difference between `I would not start` and `I ran and it went badly` is a",
+    "cross-repository interface, not an implementation detail, and it is checked",
+    "here by running the binary at each of them.",
+    "",
+    "  2  refused for configuration, before contacting anything",
+    "  1  ran the drill and scenarios failed",
+    "  0  ran the drill and everything held",
+    "",
+    "It refuses at three separate points and all three are exit 2: no scenario",
+    "directory, no gateway, and a scenario that declares expect.event with no",
+    "event log to watch. The third still refuses when a gateway IS configured,",
+    "which is what makes this fail-before-half-the-job rather than fail-fast.",
+    "",
+    "`report` is a subcommand of the same binary and is NOT declared as a",
+    "component. It is what a human runs afterwards over a saved report, not",
+    "something a deployment installs, and inventing a component name no launcher",
+    "uses would put a name into this estate that nothing means."
+  ],
+  "schema": "taipanbox.dev/components/v1",
+  "repo": "TAIPANBOX/mockryx",
+  "components": [
+    {
+      "name": "mockryx-drill",
+      "class": "tool",
+      "checked": {
+        "package": "github.com/TAIPANBOX/mockryx/cmd/mockryx",
+        "subcommand": "run",
+        "env": {
+          "MOCKRYX_API_KEY": {
+            "required": false
+          },
+          "MOCKRYX_EVENTS_PATH": {
+            "required": false
+          },
+          "MOCKRYX_GATEWAY": {
+            "required": false
+          },
+          "MOCKRYX_WATCH_EVENTS": {
+            "required": false
+          }
+        },
+        "refuses_for_configuration_exit_code": 2,
+        "findings_exit_code": 1,
+        "refuses_before_contacting_the_gateway": true
+      },
+      "declared": {
+        "report_is_the_human_half": {
+          "value": "mockryx report <saved-report.json>",
+          "why": "The same binary, read afterwards by a person over a report the drill wrote. No launcher installs or schedules it, so it is not a component here. It refuses with the same exit 2 when given no file."
+        },
+        "the_scenarios_ship_in_this_repository": {
+          "value": "scenarios/",
+          "why": "stack-up points the routine at its own checkout of this repository and stack-k8s mounts them at /scenarios. Which scenarios a deployment chooses to run is its decision, so the count is not checked here."
+        }
+      }
+    }
+  ]
+}
