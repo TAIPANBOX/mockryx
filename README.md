@@ -68,29 +68,33 @@ flowchart TB
   TF -->|"CallRecords"| CL["TokenFuse Cloud: control plane, incidents, replay, evidence, kill-switch"]
   VCX["Vouchryx: delegation proved, and endable"] -->|"short-lived token: act + cnf"| TF
   TF -.->|"polls /v1/revocations"| VCX
-  VCX ==> BUS
+  VCX ==>|"delegation_issued / denied / revoked"| BUS
   TF ==>|"agent-event NDJSON"| BUS{{"agent-event bus + Agent Passport"}}
   WX ==> BUS
   Agent -->|"web fetch"| SCX["Scopyx: governed web egress"]
   SCX -->|"POST /v1/decide"| WX
-  SCX ==> BUS
+  SCX ==>|"web_fetch / web_blocked"| BUS
   ENG["Engram: memory"] -->|"reflect via base_url"| TF
   ENG ==> BUS
   BUS ==> IDX["Idryx: identity graph, detectors, Agent-BOM"]
+  IDX ==>|"identity_finding"| BUS
   BUS ==> QX["Qryx: crypto / PQC, passport + hash-chain scan"]
+  QX ==>|"crypto events"| BUS
   BUS ==> VX["Verdryx: quality / drift"]
   VX ==>|"quality events"| BUS
   TF -->|"outcome-tagged traces"| VX
   MX["Mockryx: pre-prod safety rehearsal"] -->|"hostile scenarios"| TF
   MX ==>|"sim events"| BUS
   BILL[("cloud, SaaS and model bills")] --> CC["CostCrew: the bill, worked by a crew of agents"]
-  CC ==> BUS
+  CC ==>|"spend_spike / budget_threshold / crew moves"| BUS
   BUS ==> TRX["Trailryx: the record plane, sealed and packed"]
-  BUS ==> HX["heraldyx: reads the log, mails you"]
+  BUS ==> HX["reads the log, mails you (heraldyx)"]
   HX -->|"one mail, a view and never an action"| OPS["your mailbox"]
+  HX ==>|"alert_sent"| HJ[("heraldyx's own hash-chained journal, not this bus")]
   YOU(["you, in a browser over your own tunnel"]) --> GX[["Genaryx: the console over all of it"]]
   GX -->|"signed commands: the kill, an approval, a policy"| CL
   GX -->|"signed commands"| WX
+  GX ==>|"console_command"| BUS
   GX -.->|"reads it"| IDX
   GX -.->|"reads it"| QX
   GX -.->|"reads it"| VX
