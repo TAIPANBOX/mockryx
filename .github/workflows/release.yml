@@ -21,14 +21,23 @@
 # that moves is a deployment whose contents change without a rollout anybody
 # recorded (Yurii, 2026-08-02).
 #
-# Runs on a tag, never on a merge. Publishing on every push to main would mint
-# artifacts nobody chose to release.
+# Publishing runs on a tag, never on a merge: publishing on every push to main
+# would mint artifacts nobody chose to release. The build jobs also run on a
+# pull request that touches this file (see `pull_request` below) and publish
+# nothing there; see the `if:` on `release` and `image`.
 name: release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+  # This workflow otherwise runs only on a `v*` tag, so its build jobs were
+  # proven for the first time by the tag itself. TokenFuse's `v0.4.2` failed
+  # exactly that way on 2026-09-02: the tag was the first thing that had ever
+  # run its musl step, on a line the step had lost since the day it was
+  # written.
+  pull_request:
+    paths: [".github/workflows/release.yml"]
 
 permissions:
   contents: write
@@ -37,7 +46,8 @@ permissions:
 jobs:
   # Binaries first: this is the artifact most people who touch mockryx want, and
   # a failure here should stop the release rather than land after the image is
-  # already public.
+  # already public. Split from `release` below so a pull request that edits
+  # this file compiles every target without needing to cut a tag.
   binaries:
     name: binaries
     runs-on: ubuntu-latest
@@ -95,6 +105,25 @@ jobs:
           (cd dist && sha256sum * > SHA256SUMS)
           cat dist/SHA256SUMS
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: create release
+    needs: binaries
+    # Never on a pull request: `binaries` above is what a pull request runs
+    # instead, and this job is the one that actually publishes.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
       - name: create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -102,9 +131,40 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --title "mockryx ${GITHUB_REF_NAME}" --generate-notes
 
+  # Proves the Dockerfile itself still builds on a pull request that touches
+  # this workflow, before a tag ever reaches it. See `image` below for the
+  # job that actually pushes.
+  image-build:
+    name: build image (no push)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # QEMU is registered but not used for the compile: the Go build cross-
+      # compiles from the runner's own architecture (see the Dockerfile's
+      # BUILDPLATFORM/TARGETARCH). It is here for the base-image layers, which
+      # buildx still resolves per platform.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ github.ref_name }}
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   image:
     name: build + push
     needs: binaries
+    # Never on a pull request: image-build above already proves the
+    # Dockerfile builds, and this job is the one that actually pushes to GHCR.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
