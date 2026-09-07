@@ -1,0 +1,78 @@
+# OpenSSF Scorecard: what a stranger's supply-chain check says about this repo.
+#
+# WHY
+#
+# A person evaluating a governance tool asks the tool's own supply chain the
+# same questions it asks their agents. This publishes the answer instead of
+# claiming it: branch protection, pinned dependencies, signed releases, token
+# permissions, a security policy, and the rest, scored by somebody else's
+# criteria rather than ours.
+#
+# WHAT IT COSTS
+#
+# Nothing. GitHub Actions is free for standard runners on public repositories,
+# and scorecard-action's own README says the action "is free for all public
+# repositories". This workflow must never be copied to a private repository
+# without asking first: Actions on a private repo is metered against a limited
+# pool, which is the incident this estate already paid for once.
+#
+# WHY THE PERMISSIONS ARE WHAT THEY ARE
+#
+# `id-token: write` is required by publish_results, which is how the badge and
+# the api.scorecard.dev entry work; without it the run scores locally and tells
+# nobody. `security-events: write` uploads the SARIF so findings appear in the
+# Security tab rather than only in a log nobody opens. Everything else is read.
+name: Scorecard
+
+on:
+  branch_protection_rule:
+  schedule:
+    # Weekly. Sunday 07:41 UTC, an odd minute on purpose: the top of the hour
+    # is where every cron in the world queues up behind the same runners.
+    - cron: '41 7 * * 0'
+  push:
+    branches: [ main ]
+  # So a change to this file is exercised by the pull request that makes it,
+  # rather than first running on main. Same reason release.yml carries one.
+  pull_request:
+    paths: [ '.github/workflows/scorecard.yml' ]
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-24.04  # named, not -latest: a rolling label changes the OS under a tested job
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the analysis
+        uses: ossf/scorecard-action@55891bbd73f2425e97637d96e306fc9d491d0b21 # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publishing is what makes the score readable from outside, which is
+          # the entire point. It is skipped on a pull request because the OIDC
+          # token a fork would need is not available there.
+          publish_results: ${{ github.event_name != 'pull_request' }}
+
+      - name: Keep the raw result for five days
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - name: Send the findings to the Security tab
+        if: github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@a45bef097606dca6eac8285c279babedd70e6dfd # v3.30.8
+        with:
+          sarif_file: results.sarif
