@@ -524,6 +524,31 @@ cd mockryx
 make build   # -> ./bin/mockryx
 ```
 
+## Verify a download
+
+Every release is signed keyless with Sigstore and carries a build-provenance
+attestation and an SBOM. With `cosign` and `gh` installed:
+
+```sh
+tag=<tag>
+cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity "https://github.com/TAIPANBOX/mockryx/.github/workflows/release.yml@refs/tags/${tag}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+sha256sum -c SHA256SUMS
+gh attestation verify mockryx_darwin_arm64.tar.gz -R TAIPANBOX/mockryx
+```
+
+The image (where one is published):
+
+```sh
+cosign verify ghcr.io/taipanbox/mockryx:<tag> \
+  --certificate-identity-regexp '^https://github.com/TAIPANBOX/mockryx/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+gh attestation verify oci://ghcr.io/taipanbox/mockryx:<tag> -R TAIPANBOX/mockryx
+```
+
+Releases before the next tag have none of this; the tags say so.
+
 ## Quick start
 
 ```sh

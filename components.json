@@ -28,6 +28,7 @@
   ],
   "schema": "taipanbox.dev/components/v1",
   "repo": "TAIPANBOX/mockryx",
+  "distribution": "ghcr.io/taipanbox/mockryx; per-target archives with SHA256SUMS on each GitHub Release",
   "components": [
     {
       "name": "mockryx-drill",
