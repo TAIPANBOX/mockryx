@@ -213,6 +213,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
+      contents: read      # a job-level block replaces the workflow's, and checkout needs this
       packages: write
       id-token: write
       attestations: write
