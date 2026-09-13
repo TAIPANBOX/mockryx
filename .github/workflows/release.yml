@@ -40,8 +40,7 @@ on:
     paths: [".github/workflows/release.yml"]
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   # Binaries first: this is the artifact most people who touch mockryx want, and
@@ -181,6 +180,11 @@ jobs:
   # this workflow, before a tag ever reaches it. See `image` below for the
   # job that actually pushes.
   image-build:
+    # Pushes to the registry by digest, so it needs the package scope the
+    # top level no longer grants; `contents: read` repeated for the checkout.
+    permissions:
+      contents: read
+      packages: write
     name: build image (no push)
     runs-on: ubuntu-latest
     steps:
