@@ -55,7 +55,7 @@ jobs:
           persist-credentials: false
 
       - name: Run the analysis
-        uses: ossf/scorecard-action@55891bbd73f2425e97637d96e306fc9d491d0b21 # v2.4.3
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
           results_file: results.sarif
           results_format: sarif
@@ -73,6 +73,6 @@ jobs:
 
       - name: Send the findings to the Security tab
         if: github.event_name != 'pull_request'
-        uses: github/codeql-action/upload-sarif@a45bef097606dca6eac8285c279babedd70e6dfd # v3.30.8
+        uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3.37.9
         with:
           sarif_file: results.sarif
