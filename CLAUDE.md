@@ -205,11 +205,17 @@ an absent invariant.
     scenario that pins `headers.run_id` on purpose (see
     `verdryx-quality-drift.yaml`'s header comment). Two checks now guard a
     match:
-    - Time: a candidate line's `ts` must parse and be at or after the instant
-      the drill's own request went out. A line already on disk before that
-      instant cannot be evidence about this run, whatever its fields say. A
-      `ts` that does not parse cannot prove it came after anything either, so
-      it is refused the same way, as a non-match, never as an error.
+    - Time: a candidate line's `ts` must parse and be at or after the SECOND
+      the drill's own request went out, the instant rounded down. Rounded
+      because the planes this watches stamp `ts` at second precision (wardryx
+      and heraldyx write `Format(time.RFC3339)`), so a reaction written 400 ms
+      after a request sent at .4 s carries a `ts` that reads as earlier than
+      the raw instant; the first draft of this rule compared raw instants and
+      refused exactly the event the drill fired to see. A line already on disk
+      before that second cannot be evidence about this run, whatever its
+      fields say. A `ts` that does not parse cannot prove it came after
+      anything either, so it is refused the same way, as a non-match, never
+      as an error.
     - Integrity: before any line in a path is trusted, that path's SPEC 6.5
       `prev_hash` chain must verify (`agent-stack-go/event.VerifyChain`). A
       genuine break fails the check with an error naming the file and the
@@ -219,7 +225,8 @@ an absent invariant.
       file with no `prev_hash` on any line at all: an operator who never
       wired a `ChainedWriter` for a downstream product's log is nothing but
       restarts, not evidence of tampering.
-    *(test: `TestWaitTimeBoundary`, `TestWaitRejectsEventWithUnparseableTimestamp`,
+    *(test: `TestWaitTimeBoundary`, `TestWaitAcceptsAnEventStampedInTheRequestsOwnSecond`,
+    `TestWaitRejectsEventWithUnparseableTimestamp`,
     `TestWaitFailsOnAGenuineChainBreakEvenWithAMatchingLine`,
     `TestWaitMatchesAcrossAChainRestart`,
     `TestWaitFileWithNoChainAtAllIsNotABreak`, all in

@@ -152,12 +152,20 @@ func checkPath(path, runID, source, eventType string, sentAt time.Time) (event.E
 	if err != nil {
 		return event.Event{}, false, err
 	}
+	// The floor is the request's own SECOND, not its instant. The planes this
+	// watches stamp ts at second precision (wardryx and heraldyx write
+	// Format(time.RFC3339); verdryx, milliseconds), so a reaction written
+	// 400 ms after a request sent at .4 s carries a ts that reads as earlier
+	// than sentAt once the fraction is gone. Comparing raw instants refused
+	// exactly the event the drill fired to see; rounding the floor down
+	// accepts the request's own second and still refuses the one before it.
+	floor := sentAt.Truncate(time.Second)
 	for _, e := range events {
 		if e.Source != source || e.Type != eventType || e.RunID != runID {
 			continue
 		}
 		ts, ok := parseEventTS(e.TS)
-		if !ok || ts.Before(sentAt) {
+		if !ok || ts.Before(floor) {
 			continue
 		}
 		return e, true, nil

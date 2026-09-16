@@ -265,6 +265,47 @@ func TestWaitTimeBoundary(t *testing.T) {
 	}
 }
 
+// The planes this watches stamp ts with SECOND precision: wardryx and heraldyx
+// write time.Now().UTC().Format(time.RFC3339), verdryx milliseconds. sentAt is
+// taken with nanoseconds. An event written 400 ms after the request, in the
+// same second, carries a ts that reads as BEFORE sentAt once the fraction is
+// dropped, and a check that compared the raw instants would refuse exactly
+// the event the drill fired to see. So the floor is sentAt rounded down to
+// the second, and an event stamped in the request's own second is accepted.
+func TestWaitAcceptsAnEventStampedInTheRequestsOwnSecond(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wardryx.ndjson")
+	base := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
+	sentAt := base.Add(400 * time.Millisecond)
+	ev := verdryxEvent("run-1", "quality_drift")
+	ev.Source = "wardryx"
+	ev.Type = "policy_deny"
+	// Written 500 ms after the request, stamped the way wardryx stamps.
+	ev.TS = base.Add(900 * time.Millisecond).UTC().Format(time.RFC3339)
+	writeEvents(t, path, ev)
+
+	w := &FileWatcher{Paths: []string{path}}
+	_, ok, err := w.Wait("run-1", "wardryx", "policy_deny", sentAt, 300*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatalf("an event stamped %s for a request sent at %s was refused: second-precision "+
+			"producers would fail every drill whose reaction lands in the request's own second",
+			ev.TS, sentAt.Format(time.RFC3339Nano))
+	}
+
+	// And the second before the request is still before it.
+	early := verdryxEvent("run-2", "quality_drift")
+	early.Source, early.Type = "wardryx", "policy_deny"
+	early.TS = base.Add(-time.Second).UTC().Format(time.RFC3339)
+	path2 := filepath.Join(t.TempDir(), "wardryx.ndjson")
+	writeEvents(t, path2, early)
+	w2 := &FileWatcher{Paths: []string{path2}}
+	if _, ok, err := w2.Wait("run-2", "wardryx", "policy_deny", sentAt, 300*time.Millisecond); err != nil || ok {
+		t.Fatalf("an event from the previous second matched (ok=%v err=%v)", ok, err)
+	}
+}
+
 // TestWaitRejectsEventWithUnparseableTimestamp: a ts that does not parse
 // cannot prove it came after sentAt, so it is refused the same way a
 // too-early one is -- a non-match, not an error of its own.
