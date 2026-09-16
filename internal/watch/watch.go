@@ -128,7 +128,7 @@ func (w *FileWatcher) Wait(runID, source, eventType string, sentAt time.Time, ti
 // considered, and a candidate line must carry a parseable ts at or after
 // sentAt.
 func checkPath(path, runID, source, eventType string, sentAt time.Time) (event.Event, bool, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- path comes from --watch-events / MOCKRYX_WATCH_EVENTS, an operator-supplied argument naming a downstream product's log, not untrusted input; event.ReadFile below opens the same path
 	if err != nil {
 		return event.Event{}, false, err
 	}
