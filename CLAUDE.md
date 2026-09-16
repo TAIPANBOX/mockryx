@@ -195,44 +195,38 @@ an absent invariant.
     The last two must report that they measured nothing rather than pass, and
     each of the five has a case in `scripts/gates-have-teeth.sh`.)*
 
-11. **A watched event log is external and untrusted, so `internal/watch` never
-    treats a field match alone as a downstream reaction.** A watched
-    NDJSON file is written by another process, on its own schedule, under an
-    operator's own filesystem permissions; matching on `{source, type,
-    run_id}` fields alone let one line, planted or replayed once, make an
-    `expect.event` check pass on every future run regardless of what the
-    guardrail under test actually does, which is especially easy against a
-    scenario that pins `headers.run_id` on purpose (see
-    `verdryx-quality-drift.yaml`'s header comment). Two checks now guard a
-    match:
-    - Time: a candidate line's `ts` must parse and be at or after the SECOND
-      the drill's own request went out, the instant rounded down. Rounded
-      because the planes this watches stamp `ts` at second precision (wardryx
-      and heraldyx write `Format(time.RFC3339)`), so a reaction written 400 ms
-      after a request sent at .4 s carries a `ts` that reads as earlier than
-      the raw instant; the first draft of this rule compared raw instants and
-      refused exactly the event the drill fired to see. A line already on disk
-      before that second cannot be evidence about this run, whatever its
-      fields say. A `ts` that does not parse cannot prove it came after
-      anything either, so it is refused the same way, as a non-match, never
-      as an error.
-    - Integrity: before any line in a path is trusted, that path's SPEC 6.5
-      `prev_hash` chain must verify (`agent-stack-go/event.VerifyChain`). A
-      genuine break fails the check with an error naming the file and the
-      line, even when a field- and time-matching line is present elsewhere in
-      the same file. A chain restart (a later head with no `prev_hash`) is
-      not a break, per `agent-stack-go`'s own invariant, and neither is a
-      file with no `prev_hash` on any line at all: an operator who never
-      wired a `ChainedWriter` for a downstream product's log is nothing but
-      restarts, not evidence of tampering.
+11. **A watched event log is external and untrusted: a field match alone is
+    never treated as a downstream reaction.** `internal/watch.FileWatcher.Wait`
+    requires a candidate line's `ts` to parse and fall inside a trusted window
+    around the instant the drill's own request went out, and requires the
+    watched path's SPEC 6.5 `prev_hash` chain to verify before any line in it
+    is trusted; a genuine chain break fails the check by name and line even
+    when a field- and time-matching line is present elsewhere in the same
+    file, while a chain restart, or a file with no chain at all, is not
+    treated as a break. The window has two sides, and both matter: a floor
+    (a line already on disk before the request went out proves nothing about
+    THIS run, and a scenario that pins its `run_id` on purpose makes planting
+    one trivial) and a ceiling (the same bypass from the other direction: a
+    line stamped implausibly far in the future, e.g. year 2099, would clear
+    any floor forever, on every run to come, regardless of what the guardrail
+    under test actually did that run). Both bounds carry the same one-second
+    tolerance and rest on the same assumption, named here because `Wait`
+    cannot check it: **this process's clock and every downstream product's
+    clock are assumed NTP-synced to within about a second of each other.**
+    A `Finding` produced when the window refuses a field-matching line for
+    timing reasons names how many such lines it saw, in its `Detail`, so an
+    operator can tell a genuine gap from a clock-skew near-miss.
     *(test: `TestWaitTimeBoundary`, `TestWaitAcceptsAnEventStampedInTheRequestsOwnSecond`,
     `TestWaitRejectsEventWithUnparseableTimestamp`,
     `TestWaitFailsOnAGenuineChainBreakEvenWithAMatchingLine`,
-    `TestWaitMatchesAcrossAChainRestart`,
-    `TestWaitFileWithNoChainAtAllIsNotABreak`, all in
-    `internal/watch/watch_test.go`; the plumbing that gets `sentAt` from the
-    request into the watcher is `TestRunEventCheckPassesTheRequestsOwnSendTimeToWatcher`
-    in `internal/runner/runner_test.go`.)*
+    `TestWaitMatchesAcrossAChainRestart`, `TestWaitFileWithNoChainAtAllIsNotABreak`,
+    `TestWaitRefusesEventStampedFarInTheFuture`,
+    `TestWaitRefusesAFutureLineAppendedAfterAGenuineChain`,
+    `TestWaitTimeBoundaryAcceptsATSExactlyOnTheCeiling`,
+    `TestWaitCountsLinesRefusedOnTimeInTheFourthReturnValue`, all in
+    `internal/watch/watch_test.go`; `TestRunEventCheckFindingNamesLinesRefusedOnTime`,
+    `TestRunEventCheckFindingOmitsRefusedOnTimeCountWhenZero` in
+    `internal/runner/runner_test.go` for the `Detail` text.)*
 
 ## Decisions that have no gate yet
 
