@@ -195,6 +195,38 @@ an absent invariant.
     The last two must report that they measured nothing rather than pass, and
     each of the five has a case in `scripts/gates-have-teeth.sh`.)*
 
+11. **A watched event log is external and untrusted, so `internal/watch` never
+    treats a field match alone as a downstream reaction.** A watched
+    NDJSON file is written by another process, on its own schedule, under an
+    operator's own filesystem permissions; matching on `{source, type,
+    run_id}` fields alone let one line, planted or replayed once, make an
+    `expect.event` check pass on every future run regardless of what the
+    guardrail under test actually does, which is especially easy against a
+    scenario that pins `headers.run_id` on purpose (see
+    `verdryx-quality-drift.yaml`'s header comment). Two checks now guard a
+    match:
+    - Time: a candidate line's `ts` must parse and be at or after the instant
+      the drill's own request went out. A line already on disk before that
+      instant cannot be evidence about this run, whatever its fields say. A
+      `ts` that does not parse cannot prove it came after anything either, so
+      it is refused the same way, as a non-match, never as an error.
+    - Integrity: before any line in a path is trusted, that path's SPEC 6.5
+      `prev_hash` chain must verify (`agent-stack-go/event.VerifyChain`). A
+      genuine break fails the check with an error naming the file and the
+      line, even when a field- and time-matching line is present elsewhere in
+      the same file. A chain restart (a later head with no `prev_hash`) is
+      not a break, per `agent-stack-go`'s own invariant, and neither is a
+      file with no `prev_hash` on any line at all: an operator who never
+      wired a `ChainedWriter` for a downstream product's log is nothing but
+      restarts, not evidence of tampering.
+    *(test: `TestWaitTimeBoundary`, `TestWaitRejectsEventWithUnparseableTimestamp`,
+    `TestWaitFailsOnAGenuineChainBreakEvenWithAMatchingLine`,
+    `TestWaitMatchesAcrossAChainRestart`,
+    `TestWaitFileWithNoChainAtAllIsNotABreak`, all in
+    `internal/watch/watch_test.go`; the plumbing that gets `sentAt` from the
+    request into the watcher is `TestRunEventCheckPassesTheRequestsOwnSendTimeToWatcher`
+    in `internal/runner/runner_test.go`.)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

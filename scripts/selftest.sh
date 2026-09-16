@@ -273,8 +273,22 @@ mkdir -p "$WORK/watch-scenario"
 cp scenarios/verdryx-quality-drift.yaml "$WORK/watch-scenario/"
 
 RUN_ID="mockryx-verdryx-quality-drift"
+
+# internal/watch.Wait refuses a matching line timestamped before the instant
+# the drill's own request went out (mockryx#watch-integrity): a line already
+# on disk when mockryx starts, stamped with the moment this heredoc runs,
+# would otherwise sit BEFORE that instant and be rejected as stale evidence,
+# which is exactly the property the fix exists to enforce and would make this
+# "present" case fail for the right reason but the wrong test. A few minutes
+# in the future is comfortably past however long start_stub and the run below
+# take, without being close enough to flake; the real Verdryx has no such
+# problem, since it only ever timestamps a reaction after observing it.
+TS_PRESENT=$(python3 -c "
+import datetime
+print((datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%SZ'))
+")
 cat >"$WORK/verdryx-present.ndjson" <<EOF
-{"schema":"taipanbox.dev/agent-event/v0.2","ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","source":"verdryx","type":"quality_drift","agent_id":"agent://verdryx.local/harness","run_id":"$RUN_ID"}
+{"schema":"taipanbox.dev/agent-event/v0.2","ts":"$TS_PRESENT","source":"verdryx","type":"quality_drift","agent_id":"agent://verdryx.local/harness","run_id":"$RUN_ID"}
 EOF
 : >"$WORK/verdryx-absent.ndjson"
 

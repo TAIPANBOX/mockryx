@@ -26,11 +26,16 @@ import (
 
 // Watcher looks for a downstream, off-path service's own agent-event
 // reaction to one step's crafted request, correlated by the run_id sent
-// on the wire as x-fuse-run-id. See package watch's FileWatcher for the
-// concrete, file-polling implementation; this interface exists so this
-// package's own tests can use an in-memory fake instead of real files.
+// on the wire as x-fuse-run-id. sentAt is the instant that request went
+// out: an implementation must not accept a match timestamped before it, so
+// a line already sitting in the watched log before this attempt ever fired
+// cannot stand in for a genuine reaction to it. See package watch's
+// FileWatcher for the concrete, file-polling implementation (which also
+// verifies the watched file's integrity chain before trusting a match);
+// this interface exists so this package's own tests can use an in-memory
+// fake instead of real files.
 type Watcher interface {
-	Wait(runID, source, eventType string, timeout time.Duration) (event.Event, bool, error)
+	Wait(runID, source, eventType string, sentAt time.Time, timeout time.Duration) (event.Event, bool, error)
 }
 
 // Status is the outcome of running one scenario end to end.
@@ -235,6 +240,11 @@ func runStep(client *http.Client, watcher Watcher, gatewayURL, apiKey, requires,
 	var lastStatus int
 	var lastHeaders http.Header
 	for attempt := 1; attempt <= repeat; attempt++ {
+		// Captured before the request goes out, not after the response comes
+		// back: this is the instant a downstream reaction's own timestamp
+		// must be at or after to count as evidence about THIS attempt, not
+		// some earlier one. See package watch's Wait.
+		sentAt := time.Now()
 		status, hdr, err := send(client, gatewayURL, apiKey, step.Request, headers)
 		out.calls++
 		if err != nil {
@@ -273,7 +283,7 @@ func runStep(client *http.Client, watcher Watcher, gatewayURL, apiKey, requires,
 						}
 						return out
 					}
-					_, ok, err := watcher.Wait(headers.RunID, ev.Source, ev.Type, ev.Within)
+					_, ok, err := watcher.Wait(headers.RunID, ev.Source, ev.Type, sentAt, ev.Within)
 					if err != nil {
 						out.watcherError = true
 						out.finding = &Finding{

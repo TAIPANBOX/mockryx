@@ -583,11 +583,12 @@ type fakeWatcher struct {
 	calledRunID   string
 	calledSource  string
 	calledType    string
+	calledSentAt  time.Time
 	calledTimeout time.Duration
 }
 
-func (f *fakeWatcher) Wait(runID, source, eventType string, timeout time.Duration) (event.Event, bool, error) {
-	f.calledRunID, f.calledSource, f.calledType, f.calledTimeout = runID, source, eventType, timeout
+func (f *fakeWatcher) Wait(runID, source, eventType string, sentAt time.Time, timeout time.Duration) (event.Event, bool, error) {
+	f.calledRunID, f.calledSource, f.calledType, f.calledSentAt, f.calledTimeout = runID, source, eventType, sentAt, timeout
 	return f.event, f.ok, f.err
 }
 
@@ -629,6 +630,27 @@ func TestRunEventCheckPassesWhenObserved(t *testing.T) {
 	}
 	if w.calledTimeout != time.Second {
 		t.Errorf("watcher called with timeout=%s, want 1s (from the scenario's Within)", w.calledTimeout)
+	}
+}
+
+func TestRunEventCheckPassesTheRequestsOwnSendTimeToWatcher(t *testing.T) {
+	// runStep must hand the watcher the instant THIS attempt's request went
+	// out, not a zero value and not the time the response came back: a
+	// Watcher implementation (package watch's FileWatcher) uses it to
+	// refuse a downstream line that was already on disk before the request
+	// was ever sent. This is a plumbing test of that one value, in
+	// isolation from watch's own file-based enforcement of it.
+	before := time.Now()
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
+	})
+	w := &fakeWatcher{ok: true, event: event.Event{Source: "verdryx", Type: "quality_drift"}}
+
+	Run(eventCheckedScenario(), srv.URL, "", w)
+	after := time.Now()
+
+	if w.calledSentAt.Before(before) || w.calledSentAt.After(after) {
+		t.Errorf("watcher called with sentAt=%s, want it between %s and %s (the request's own send window)", w.calledSentAt, before, after)
 	}
 }
 
