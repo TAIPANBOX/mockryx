@@ -273,24 +273,48 @@ mkdir -p "$WORK/watch-scenario"
 cp scenarios/verdryx-quality-drift.yaml "$WORK/watch-scenario/"
 
 RUN_ID="mockryx-verdryx-quality-drift"
-cat >"$WORK/verdryx-present.ndjson" <<EOF
-{"schema":"taipanbox.dev/agent-event/v0.2","ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","source":"verdryx","type":"quality_drift","agent_id":"agent://verdryx.local/harness","run_id":"$RUN_ID"}
-EOF
+
 : >"$WORK/verdryx-absent.ndjson"
 
 start_stub enforcing || exit 1
+
+# internal/watch.Wait now refuses a matching line outside a window around the
+# instant the drill's own request went out (mockryx#watch-integrity,
+# CLAUDE.md invariant 11): too early is stale evidence sitting on disk
+# before the request, too far in the future is the same bypass from the
+# other side (a line planted once that would clear any floor forever). A
+# fixture stamped minutes ahead of time used to dodge the first case by
+# landing past both bounds -- with the ceiling now in place that lands
+# past it too, and would be refused for the SAME reason invariant 11
+# exists to enforce, which would make this "present" case fail for the
+# right reason but the wrong test. So the fixture is written for real,
+# from a background subshell, AFTER mockryx has already started polling
+# for it: the file does not exist yet when the run begins (Wait treats a
+# missing file as "keep polling", the same as no match yet), and by the
+# time it appears its ts is the genuine wall clock, safely inside the
+# window either side.
+(
+	sleep 1
+	TS_PRESENT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	cat >"$WORK/verdryx-present.ndjson" <<EOF
+{"schema":"taipanbox.dev/agent-event/v0.2","ts":"$TS_PRESENT","source":"verdryx","type":"quality_drift","agent_id":"agent://verdryx.local/harness","run_id":"$RUN_ID"}
+EOF
+) &
+FIXTURE_PID=$!
 
 "$BIN" run --gateway "http://127.0.0.1:$PORT" --format json \
 	--watch-events "$WORK/verdryx-present.ndjson" "$WORK/watch-scenario/" \
 	>"$WORK/watch-present.json" 2>"$WORK/watch-present.err"
 
+wait "$FIXTURE_PID" 2>/dev/null || true
+
 # The negative case has to wait out the real timeout for a correct "absent"
 # verdict, so it runs against a copy with a short one (1s instead of the
 # shipped 10s) -- the SHIPPED scenario keeps its generous default for a real
 # operator's own, genuinely asynchronous Verdryx; only this self-test copy
-# is impatient. The positive case above needs no such copy: Wait checks
-# every path before it ever sleeps, so an event already on disk matches on
-# the first pass regardless of the timeout.
+# is impatient. The positive case above keeps the shipped 10s timeout: the
+# background fixture lands about a second after the run starts, comfortably
+# inside it.
 sed 's/within: 10s/within: 1s/' scenarios/verdryx-quality-drift.yaml \
 	>"$WORK/watch-scenario/verdryx-quality-drift.yaml"
 

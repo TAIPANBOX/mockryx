@@ -579,16 +579,18 @@ func TestRunOnBehalfOfForgedChainFindingWhenBypassed(t *testing.T) {
 type fakeWatcher struct {
 	event         event.Event
 	ok            bool
+	refusedOnTime int
 	err           error
 	calledRunID   string
 	calledSource  string
 	calledType    string
+	calledSentAt  time.Time
 	calledTimeout time.Duration
 }
 
-func (f *fakeWatcher) Wait(runID, source, eventType string, timeout time.Duration) (event.Event, bool, error) {
-	f.calledRunID, f.calledSource, f.calledType, f.calledTimeout = runID, source, eventType, timeout
-	return f.event, f.ok, f.err
+func (f *fakeWatcher) Wait(runID, source, eventType string, sentAt time.Time, timeout time.Duration) (event.Event, bool, int, error) {
+	f.calledRunID, f.calledSource, f.calledType, f.calledSentAt, f.calledTimeout = runID, source, eventType, sentAt, timeout
+	return f.event, f.ok, f.refusedOnTime, f.err
 }
 
 // eventCheckedScenario mirrors wardryxScenario() (a Wardryx tool denial)
@@ -632,6 +634,43 @@ func TestRunEventCheckPassesWhenObserved(t *testing.T) {
 	}
 }
 
+func TestRunEventCheckPassesTheRequestsOwnSendTimeToWatcher(t *testing.T) {
+	// runStep must hand the watcher the instant THIS attempt's request went
+	// out, not a zero value and not the time the response came back: a
+	// Watcher implementation (package watch's FileWatcher) uses it to
+	// refuse a downstream line that was already on disk before the request
+	// was ever sent. This is a plumbing test of that one value, in
+	// isolation from watch's own file-based enforcement of it.
+	before := time.Now()
+	// The stub gateway records ITS OWN receive time, server-side, the
+	// moment the request actually arrives -- independent of anything
+	// runStep computes. sentAt claiming to be captured before the request
+	// went out is only a real claim if it provably precedes that receipt;
+	// a mutant that moves `sentAt := time.Now()` to after send() returns
+	// captures it after the full round trip, which is necessarily after
+	// the server ever saw the request, and this is the assertion that
+	// catches that, where the before/after window below does not (both
+	// still fall inside the overall call to Run).
+	var receivedAt time.Time
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		receivedAt = time.Now()
+		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
+	})
+	w := &fakeWatcher{ok: true, event: event.Event{Source: "verdryx", Type: "quality_drift"}}
+
+	Run(eventCheckedScenario(), srv.URL, "", w)
+	after := time.Now()
+
+	if w.calledSentAt.Before(before) || w.calledSentAt.After(after) {
+		t.Errorf("watcher called with sentAt=%s, want it between %s and %s (the request's own send window)", w.calledSentAt, before, after)
+	}
+	if w.calledSentAt.After(receivedAt) {
+		t.Errorf("watcher called with sentAt=%s, AFTER the gateway received the request at %s: "+
+			"sentAt must be captured before the request goes out, not after the response comes back",
+			w.calledSentAt, receivedAt)
+	}
+}
+
 func TestRunEventCheckFindingWhenNeverObserved(t *testing.T) {
 	// The synchronous Wardryx deny fires correctly, but the downstream
 	// Verdryx reaction never shows up -- a genuine defensive gap distinct
@@ -657,6 +696,48 @@ func TestRunEventCheckFindingWhenNeverObserved(t *testing.T) {
 	// downstream reaction.
 	if f.GotStatus != http.StatusForbidden {
 		t.Errorf("Finding.GotStatus = %d, want 403 (the sync response did match)", f.GotStatus)
+	}
+}
+
+func TestRunEventCheckFindingNamesLinesRefusedOnTime(t *testing.T) {
+	// When the watcher reports near-misses (lines that matched
+	// source/type/run_id but were refused on time alone, e.g. clock skew
+	// against an NTP assumption Wait cannot verify), the Finding's Detail
+	// must say so and name the count, not read identically to "nothing was
+	// ever written" -- see CLAUDE.md invariant 11's note on the NTP
+	// assumption and internal/watch.Wait's fourth return value.
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
+	})
+	w := &fakeWatcher{ok: false, refusedOnTime: 3}
+
+	res := Run(eventCheckedScenario(), srv.URL, "", w)
+	if res.Status != StatusFailed {
+		t.Fatalf("Status = %q, want failed", res.Status)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("Findings = %+v, want 1", res.Findings)
+	}
+	if !strings.Contains(res.Findings[0].Detail, "3") || !strings.Contains(res.Findings[0].Detail, "refused on time") {
+		t.Errorf("Detail = %q, want it to name the 3 lines refused on time", res.Findings[0].Detail)
+	}
+}
+
+func TestRunEventCheckFindingOmitsRefusedOnTimeCountWhenZero(t *testing.T) {
+	// The negative control for the test above: when nothing was refused on
+	// time (the ordinary "genuinely nothing happened" case), the Detail
+	// must not claim a spurious count.
+	srv := newStubGateway(t, func(call int, r *http.Request, body map[string]any) (int, map[string]string) {
+		return http.StatusForbidden, map[string]string{"x-fuse-wardryx": "deny"}
+	})
+	w := &fakeWatcher{ok: false, refusedOnTime: 0}
+
+	res := Run(eventCheckedScenario(), srv.URL, "", w)
+	if len(res.Findings) != 1 {
+		t.Fatalf("Findings = %+v, want 1", res.Findings)
+	}
+	if strings.Contains(res.Findings[0].Detail, "refused on time") {
+		t.Errorf("Detail = %q, want no refused-on-time clause when the count is 0", res.Findings[0].Detail)
 	}
 }
 

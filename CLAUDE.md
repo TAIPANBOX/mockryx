@@ -195,6 +195,39 @@ an absent invariant.
     The last two must report that they measured nothing rather than pass, and
     each of the five has a case in `scripts/gates-have-teeth.sh`.)*
 
+11. **A watched event log is external and untrusted: a field match alone is
+    never treated as a downstream reaction.** `internal/watch.FileWatcher.Wait`
+    requires a candidate line's `ts` to parse and fall inside a trusted window
+    around the instant the drill's own request went out, and requires the
+    watched path's SPEC 6.5 `prev_hash` chain to verify before any line in it
+    is trusted; a genuine chain break fails the check by name and line even
+    when a field- and time-matching line is present elsewhere in the same
+    file, while a chain restart, or a file with no chain at all, is not
+    treated as a break. The window has two sides, and both matter: a floor
+    (a line already on disk before the request went out proves nothing about
+    THIS run, and a scenario that pins its `run_id` on purpose makes planting
+    one trivial) and a ceiling (the same bypass from the other direction: a
+    line stamped implausibly far in the future, e.g. year 2099, would clear
+    any floor forever, on every run to come, regardless of what the guardrail
+    under test actually did that run). Both bounds carry the same one-second
+    tolerance and rest on the same assumption, named here because `Wait`
+    cannot check it: **this process's clock and every downstream product's
+    clock are assumed NTP-synced to within about a second of each other.**
+    A `Finding` produced when the window refuses a field-matching line for
+    timing reasons names how many such lines it saw, in its `Detail`, so an
+    operator can tell a genuine gap from a clock-skew near-miss.
+    *(test: `TestWaitTimeBoundary`, `TestWaitAcceptsAnEventStampedInTheRequestsOwnSecond`,
+    `TestWaitRejectsEventWithUnparseableTimestamp`,
+    `TestWaitFailsOnAGenuineChainBreakEvenWithAMatchingLine`,
+    `TestWaitMatchesAcrossAChainRestart`, `TestWaitFileWithNoChainAtAllIsNotABreak`,
+    `TestWaitRefusesEventStampedFarInTheFuture`,
+    `TestWaitRefusesAFutureLineAppendedAfterAGenuineChain`,
+    `TestWaitTimeBoundaryAcceptsATSExactlyOnTheCeiling`,
+    `TestWaitCountsLinesRefusedOnTimeInTheFourthReturnValue`, all in
+    `internal/watch/watch_test.go`; `TestRunEventCheckFindingNamesLinesRefusedOnTime`,
+    `TestRunEventCheckFindingOmitsRefusedOnTimeCountWhenZero` in
+    `internal/runner/runner_test.go` for the `Detail` text.)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
