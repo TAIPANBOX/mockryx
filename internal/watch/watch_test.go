@@ -90,7 +90,7 @@ func TestWaitFindsAlreadyPresentEvent(t *testing.T) {
 	writeEvents(t, path, verdryxEvent("run-1", "quality_drift"))
 
 	w := &FileWatcher{Paths: []string{path}}
-	ev, ok, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 2*time.Second)
+	ev, ok, _, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestWaitFindsEventWrittenAfterPollingStarts(t *testing.T) {
 		close(done)
 	}()
 
-	ev, ok, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 2*time.Second)
+	ev, ok, _, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 2*time.Second)
 	<-done
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +135,7 @@ func TestWaitTimesOutWithNoMatch(t *testing.T) {
 
 	w := &FileWatcher{Paths: []string{path}}
 	start := time.Now()
-	_, ok, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
+	_, ok, _, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +157,7 @@ func TestWaitMismatchedSourceOrTypeDoesNotMatch(t *testing.T) {
 	)
 
 	w := &FileWatcher{Paths: []string{path}}
-	_, ok, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
+	_, ok, _, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestWaitMissingFileKeepsPollingNotAnError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "never-created.ndjson")
 	w := &FileWatcher{Paths: []string{path}}
 
-	_, ok, err := w.Wait("run-1", "verdryx", "quality_drift", time.Now(), 300*time.Millisecond)
+	_, ok, _, err := w.Wait("run-1", "verdryx", "quality_drift", time.Now(), 300*time.Millisecond)
 	if err != nil {
 		t.Fatalf("expected no error for a missing file, got %v", err)
 	}
@@ -192,7 +192,7 @@ func TestWaitPollsMultiplePaths(t *testing.T) {
 	})
 
 	w := &FileWatcher{Paths: []string{pathA, pathB}}
-	ev, ok, err := w.Wait("run-1", "idryx", "attestation_missing", sentAt, 2*time.Second)
+	ev, ok, _, err := w.Wait("run-1", "idryx", "attestation_missing", sentAt, 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestWaitReturnsErrorForRealReadFailure(t *testing.T) {
 	dir := t.TempDir()
 	w := &FileWatcher{Paths: []string{dir}}
 
-	_, _, err := w.Wait("run-1", "verdryx", "quality_drift", time.Now(), 300*time.Millisecond)
+	_, _, _, err := w.Wait("run-1", "verdryx", "quality_drift", time.Now(), 300*time.Millisecond)
 	if err == nil {
 		t.Error("expected an error when a watched path is a directory, not a file")
 	}
@@ -230,6 +230,14 @@ func TestWaitReturnsErrorForRealReadFailure(t *testing.T) {
 // RED the same way (err=nil, ok=true where the fix must refuse the match).
 // The rest are controls: they must already pass on the unfixed code, so a
 // suite that failed everything would not be proof of anything.
+//
+// A second round found the SAME bypass from the other direction: a floor
+// alone still lets a line planted with an implausibly future ts (Fable's
+// probe P3, ts "2099-01-01") clear sentAt's floor forever, on every future
+// run. TestWaitRefusesEventStampedFarInTheFuture and
+// TestWaitRefusesAFutureLineAppendedAfterAGenuineChain are that probe, and
+// were RED (ok=true) against the code that added the floor but not yet a
+// ceiling.
 // ------------------------------------------------------------------
 
 // TestWaitTimeBoundary covers (a) a line timestamped before sentAt is
@@ -254,7 +262,7 @@ func TestWaitTimeBoundary(t *testing.T) {
 			writeEvents(t, path, ev)
 
 			w := &FileWatcher{Paths: []string{path}}
-			_, ok, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
+			_, ok, _, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -284,7 +292,7 @@ func TestWaitAcceptsAnEventStampedInTheRequestsOwnSecond(t *testing.T) {
 	writeEvents(t, path, ev)
 
 	w := &FileWatcher{Paths: []string{path}}
-	_, ok, err := w.Wait("run-1", "wardryx", "policy_deny", sentAt, 300*time.Millisecond)
+	_, ok, _, err := w.Wait("run-1", "wardryx", "policy_deny", sentAt, 300*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,14 +302,26 @@ func TestWaitAcceptsAnEventStampedInTheRequestsOwnSecond(t *testing.T) {
 			ev.TS, sentAt.Format(time.RFC3339Nano))
 	}
 
-	// And the second before the request is still before it.
+	// And the second before the request is still before it. Stamped at
+	// .600 of that previous second, not the second's own start, and with
+	// full (Nano) precision preserved rather than truncated to the whole
+	// second the way a real wardryx line would be: a floor mutated to a
+	// fixed 1s slack behind sentAt (sentAt.Add(-time.Second), instead of
+	// truncating sentAt down to its second) would put its floor at
+	// 11:59:59.400 here, and .600 sits AFTER that mutant floor -- wrongly
+	// accepted by the mutant, correctly rejected by truncation (whose
+	// floor is 12:00:00.000). An event stamped at exactly 11:59:59.000, or
+	// formatted with RFC3339's whole-second precision the way the positive
+	// case above is, would not catch that mutant: both the correct floor
+	// and the mutant one reject it alike, since the fractional part that
+	// tells them apart never survives the round trip through the string.
 	early := verdryxEvent("run-2", "quality_drift")
 	early.Source, early.Type = "wardryx", "policy_deny"
-	early.TS = base.Add(-time.Second).UTC().Format(time.RFC3339)
+	early.TS = base.Add(-400 * time.Millisecond).UTC().Format(time.RFC3339Nano)
 	path2 := filepath.Join(t.TempDir(), "wardryx.ndjson")
 	writeEvents(t, path2, early)
 	w2 := &FileWatcher{Paths: []string{path2}}
-	if _, ok, err := w2.Wait("run-2", "wardryx", "policy_deny", sentAt, 300*time.Millisecond); err != nil || ok {
+	if _, ok, _, err := w2.Wait("run-2", "wardryx", "policy_deny", sentAt, 300*time.Millisecond); err != nil || ok {
 		t.Fatalf("an event from the previous second matched (ok=%v err=%v)", ok, err)
 	}
 }
@@ -316,7 +336,7 @@ func TestWaitRejectsEventWithUnparseableTimestamp(t *testing.T) {
 	writeEvents(t, path, ev)
 
 	w := &FileWatcher{Paths: []string{path}}
-	_, ok, err := w.Wait("run-1", "verdryx", "quality_drift", time.Now(), 300*time.Millisecond)
+	_, ok, _, err := w.Wait("run-1", "verdryx", "quality_drift", time.Now(), 300*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +366,7 @@ func TestWaitFailsOnAGenuineChainBreakEvenWithAMatchingLine(t *testing.T) {
 	corruptLine(t, path, 2, `"type":"quality_drift"`, `"type":"quality_drift","tampered":true`)
 
 	w := &FileWatcher{Paths: []string{path}}
-	_, ok, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
+	_, ok, _, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected an error: the watched file's chain is broken")
 	}
@@ -378,7 +398,7 @@ func TestWaitMatchesAcrossAChainRestart(t *testing.T) {
 	writeEvents(t, path, target) // appended as a fresh head: the restart
 
 	w := &FileWatcher{Paths: []string{path}}
-	ev, ok, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
+	ev, ok, _, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
 	if err != nil {
 		t.Fatalf("a chain restart must not be treated as a break: %v", err)
 	}
@@ -394,7 +414,7 @@ func TestWaitMatchesAcrossAChainRestart(t *testing.T) {
 // ChainedWriter for a watched product's log is not in violation of
 // anything -- every line is its own head (a restart, from Wait's point of
 // view, on every single line), never a break. Documents the decision
-// alongside CLAUDE.md invariant 4.5's doc comment: absence of a chain is
+// alongside CLAUDE.md invariant 11's doc comment: absence of a chain is
 // not evidence of tampering, only a genuine mismatch is.
 func TestWaitFileWithNoChainAtAllIsNotABreak(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "verdryx.ndjson")
@@ -409,7 +429,7 @@ func TestWaitFileWithNoChainAtAllIsNotABreak(t *testing.T) {
 	)
 
 	w := &FileWatcher{Paths: []string{path}}
-	ev, ok, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
+	ev, ok, _, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
 	if err != nil {
 		t.Fatalf("an unchained file must not be treated as broken: %v", err)
 	}
@@ -418,5 +438,101 @@ func TestWaitFileWithNoChainAtAllIsNotABreak(t *testing.T) {
 	}
 	if ev.RunID != "run-1" {
 		t.Errorf("RunID = %q", ev.RunID)
+	}
+}
+
+// TestWaitRefusesEventStampedFarInTheFuture is Fable's probe P3: an
+// unchained file holding one line stamped "2099-01-01" (matching the
+// shipped verdryx-quality-drift.yaml's pinned run_id) satisfies any floor
+// derived from sentAt forever, on every future run, regardless of what the
+// guardrail under test actually did that run -- the same bypass a floor
+// alone exists to close, just approached from the other direction. RED
+// (ok=true) against the code with a floor but no ceiling.
+func TestWaitRefusesEventStampedFarInTheFuture(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "verdryx.ndjson")
+	ev := verdryxEvent("mockryx-verdryx-quality-drift", "quality_drift")
+	ev.TS = "2099-01-01T00:00:00Z"
+	writeEvents(t, path, ev)
+
+	w := &FileWatcher{Paths: []string{path}}
+	_, ok, _, err := w.Wait("mockryx-verdryx-quality-drift", "verdryx", "quality_drift", time.Now(), 300*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Error("expected no match: a ts far in the future cannot prove a genuine reaction to THIS run either")
+	}
+}
+
+// TestWaitRefusesAFutureLineAppendedAfterAGenuineChain is the same probe
+// (P3), but the future-stamped line is appended as a fresh head onto a
+// real chained log first: a restart is not a break (see
+// TestWaitMatchesAcrossAChainRestart), so only a ceiling stops this one,
+// never the integrity check. RED (ok=true) against the code with a floor
+// but no ceiling.
+func TestWaitRefusesAFutureLineAppendedAfterAGenuineChain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "verdryx.ndjson")
+	writeChained(t, path, verdryxEvent("run-0", "eval_run"))
+
+	ev := verdryxEvent("mockryx-verdryx-quality-drift", "quality_drift")
+	ev.TS = "2099-01-01T00:00:00Z"
+	writeEvents(t, path, ev) // appended as a fresh head: the restart
+
+	w := &FileWatcher{Paths: []string{path}}
+	_, ok, _, err := w.Wait("mockryx-verdryx-quality-drift", "verdryx", "quality_drift", time.Now(), 300*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Error("expected no match: a chain restart is not a break, but the ceiling still refuses a ts far in the future")
+	}
+}
+
+// TestWaitTimeBoundaryAcceptsATSExactlyOnTheCeiling is the negative control
+// for the two tests above: the ceiling must not swallow a genuine,
+// present-moment reaction. A ts safely inside the window (well under the
+// two-second tolerance) still matches.
+func TestWaitTimeBoundaryAcceptsATSExactlyOnTheCeiling(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "verdryx.ndjson")
+	sentAt := time.Now()
+	ev := verdryxEvent("run-1", "quality_drift")
+	ev.TS = time.Now().Add(500 * time.Millisecond).UTC().Format(time.RFC3339Nano)
+	writeEvents(t, path, ev)
+
+	w := &FileWatcher{Paths: []string{path}}
+	_, ok, _, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Error("expected a match: a ts 500ms into the future is well inside the ceiling's tolerance")
+	}
+}
+
+// TestWaitCountsLinesRefusedOnTimeInTheFourthReturnValue: Wait's fourth
+// return value is a diagnostic, not a control signal (see CLAUDE.md
+// invariant 11 and runner.Watcher's doc comment) -- how many lines matched
+// source/type/run_id but were refused for falling outside the floor/ceiling
+// window, on the LAST poll before Wait gave up.
+func TestWaitCountsLinesRefusedOnTimeInTheFourthReturnValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "verdryx.ndjson")
+	sentAt := time.Now()
+	writeEvents(t, path,
+		verdryxEvent("run-1", "quality_drift"), // too early: written before sentAt below
+		verdryxEvent("run-1", "quality_drift"), // too early, a second matching line
+		event.Event{Schema: event.SchemaV02, TS: sentAt.Add(time.Second).UTC().Format(time.RFC3339Nano), Source: "verdryx", Type: "eval_run", AgentID: "a", RunID: "run-1"}, // right time, wrong type: not a field match at all
+	)
+	sentAt = sentAt.Add(time.Hour) // now those two lines are unambiguously "before sentAt"
+
+	w := &FileWatcher{Paths: []string{path}}
+	_, ok, refused, err := w.Wait("run-1", "verdryx", "quality_drift", sentAt, 300*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("expected no match: both field-matching lines are before sentAt")
+	}
+	if refused != 2 {
+		t.Errorf("refused = %d, want 2 (the two field-matching lines refused on time; the third line does not match source/type at all)", refused)
 	}
 }

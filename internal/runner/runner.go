@@ -29,13 +29,16 @@ import (
 // on the wire as x-fuse-run-id. sentAt is the instant that request went
 // out: an implementation must not accept a match timestamped before it, so
 // a line already sitting in the watched log before this attempt ever fired
-// cannot stand in for a genuine reaction to it. See package watch's
-// FileWatcher for the concrete, file-polling implementation (which also
-// verifies the watched file's integrity chain before trusting a match);
-// this interface exists so this package's own tests can use an in-memory
-// fake instead of real files.
+// cannot stand in for a genuine reaction to it. The fourth return value is
+// a diagnostic only, not a control signal: how many lines matched
+// source/type/run_id but were refused on time alone, so a caller building
+// a "no event observed" Finding can say whether it saw near-misses or
+// nothing at all. See package watch's FileWatcher for the concrete,
+// file-polling implementation (which also verifies the watched file's
+// integrity chain before trusting a match); this interface exists so this
+// package's own tests can use an in-memory fake instead of real files.
 type Watcher interface {
-	Wait(runID, source, eventType string, sentAt time.Time, timeout time.Duration) (event.Event, bool, error)
+	Wait(runID, source, eventType string, sentAt time.Time, timeout time.Duration) (ev event.Event, ok bool, refusedOnTime int, err error)
 }
 
 // Status is the outcome of running one scenario end to end.
@@ -283,7 +286,7 @@ func runStep(client *http.Client, watcher Watcher, gatewayURL, apiKey, requires,
 						}
 						return out
 					}
-					_, ok, err := watcher.Wait(headers.RunID, ev.Source, ev.Type, sentAt, ev.Within)
+					_, ok, refusedOnTime, err := watcher.Wait(headers.RunID, ev.Source, ev.Type, sentAt, ev.Within)
 					if err != nil {
 						out.watcherError = true
 						out.finding = &Finding{
@@ -300,6 +303,15 @@ func runStep(client *http.Client, watcher Watcher, gatewayURL, apiKey, requires,
 						return out
 					}
 					if !ok {
+						detail := fmt.Sprintf("gateway response matched, but no %s/%s event observed for run %s within %s", ev.Source, ev.Type, headers.RunID, ev.Within)
+						if refusedOnTime > 0 {
+							// See package watch's Wait: a downstream log is
+							// NTP-assumed, not verified, to be in sync with
+							// this process's clock. A near-miss here is
+							// usually that assumption strained, not an
+							// absent guardrail, and worth telling apart.
+							detail += fmt.Sprintf(" (%d matching line(s) seen but refused on time: outside the trusted window around this attempt, possibly clock skew)", refusedOnTime)
+						}
 						out.finding = &Finding{
 							Step:              step.Name,
 							Attempt:           attempt,
@@ -309,7 +321,7 @@ func runStep(client *http.Client, watcher Watcher, gatewayURL, apiKey, requires,
 							GotHeaders:        flatten(hdr),
 							ExpectEventSource: ev.Source,
 							ExpectEventType:   ev.Type,
-							Detail:            fmt.Sprintf("gateway response matched, but no %s/%s event observed for run %s within %s", ev.Source, ev.Type, headers.RunID, ev.Within),
+							Detail:            detail,
 						}
 						return out
 					}
