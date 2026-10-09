@@ -22,6 +22,11 @@ jobs:
       - name: vet
         run: go vet ./...
       - name: staticcheck
+        # dominikh/go-tools#1832: staticcheck 2026.2.1 cannot read the export
+        # data go1.27.2 writes. Lint under go1.27.1 until a fixed release ships;
+        # build, test and govulncheck stay on go1.27.2.
+        env:
+          GOTOOLCHAIN: go1.27.1
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@2026.2.1
           staticcheck ./...
