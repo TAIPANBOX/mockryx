@@ -452,7 +452,7 @@ steps:                          # required, at least one
   - name: request-shell-exec    # required
     repeat: 1                   # optional, default 1: how many times to send this
                                  # request, stopping early at the first matching attempt
-    request:                    # required: the JSON body POSTed to {gateway}/v1/messages
+    request:                    # one of request, tool_check, mcp (below): the JSON body POSTed to {gateway}/v1/messages
       model: claude-haiku       # required
       max_tokens: 50             # optional
       messages:                  # required, at least one, {role, content}
@@ -472,7 +472,7 @@ steps:                          # required, at least one
       outcome: case_resolved
       approval_token: ...
     expect:                      # required
-      status: 403                # required: the HTTP status the guardrail should answer with
+      status: 403                # required for a request step: the HTTP status the guardrail should answer with
       header:                    # optional, exact-match response header assertions
         x-fuse-wardryx: deny
       within_repeats: 1          # optional, default = repeat: the guardrail must fire by
