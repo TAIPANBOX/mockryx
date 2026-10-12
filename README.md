@@ -127,11 +127,13 @@ a stub provider - on two separate campaigns: 3 scenarios, 3 held, 0 defensive ga
 times. Those three were `runaway-budget`, `wardryx-denied-tool` and `dlp-secret-leak`, and they are what
 that "0 gaps" covers. The scenarios written since were fired locally instead, on 2026-08-25 and again on
 2026-08-26 against a gateway, a Wardryx and a heraldyx built from each repository's current `main`. That
-run is not a clean sweep and is more useful for it: six of the eight in `scenarios/` passed,
+run is not a clean sweep and is more useful for it: six of the eight then in `scenarios/` passed,
 `verdryx-quality-drift` reported its standing gap (nothing in Verdryx emits the event it waits for), and
 `injected-page` turned out to be unable to reach the guardrail it names at all, reporting "not
 configured" against a firewall that was enforcing. Both are written up, with the wire evidence, in
-[`VALIDATION.md`](VALIDATION.md).
+[`VALIDATION.md`](VALIDATION.md). The two drills added after that, `token-flood` and `pii-in-prompt`,
+were fired on 2026-10-12 against TokenFuse v1.10.0 in stub mode, with the commands and results in the
+same file.
 
 ![Mockryx pre-prod rehearsal: 3 drills run against a real gateway, 3 held, 0 defensive gaps, $0 real spend](assets/13-mockryx.png)
 
@@ -165,8 +167,8 @@ real spend, remain the evidence for the harness itself.
 <img src="docs/scenarios.png" alt="Five guardrail fire drills: runaway budget against the Breaker, denied tool use, a forged delegation chain and a missing approval against Wardryx, and a secret-leak prompt against DLP. Each card names what the drill asserts must happen, a GAP means a Finding was recorded, and an amber dot marks the two scenarios that have never been fired at a real gateway" width="900">
 </div>
 
-The diagram above predates `verdryx-quality-drift`, `injected-page`, `reaction-chain-reaches-heraldyx`
-and the game-day drill below; it still shows the original five.
+The diagram above predates `verdryx-quality-drift`, `injected-page`, `reaction-chain-reaches-heraldyx`,
+`token-flood`, `pii-in-prompt` and the game-day drill below; it still shows the original five.
 
 Mockryx works in four steps:
 
@@ -184,16 +186,18 @@ Mockryx works in four steps:
    (`internal/events`), via `agent-stack-go/event.ChainedWriter`, so a fire
    drill leaves the same kind of audit trail as the guardrails it rehearses.
 
-Eight example scenarios ship in `scenarios/`, each rehearsing a different
+Ten example scenarios ship in `scenarios/`, each rehearsing a different
 guardrail, all loaded together by a plain `mockryx run ./scenarios`:
 
 | File | Rehearses | Requires | Expects |
 | --- | --- | --- | --- |
 | `runaway-budget.yaml` | An agent stuck in a loop, burning spend on a tiny budget | (core, always-on) | `402` within 8 attempts |
+| `token-flood.yaml` | One request whose `max_tokens` alone could cost more than the run's whole budget: unbounded consumption in a single call, no loop (OWASP LLM10:2025) | (core, always-on) | `402` on the first attempt, refused at reservation |
 | `wardryx-denied-tool.yaml` | An agent asking to use a tool its policy should deny | `wardryx` | `403` + `x-fuse-wardryx: deny` |
 | `on-behalf-of-forged-chain.yaml` | An agent presenting a forged (cyclic) delegation chain | `wardryx` | `403` + `x-fuse-wardryx: deny` |
 | `approval-required.yaml` | A high-cost action submitted with no approval token | `wardryx` | `403` + `x-fuse-wardryx: hold` |
 | `dlp-secret-leak.yaml` | A prompt that embeds what looks like a live credential | `dlp` | `403` |
+| `pii-in-prompt.yaml` | A support agent pastes a customer's email address and phone number into a prompt (OWASP LLM02:2025) | `dlp` | `403` when PII blocking is on (`TOKENFUSE_DLP_PII=block`); `skipped_not_configured` when it is off, which is TokenFuse's default |
 | `verdryx-quality-drift.yaml` | The same denied tool-use attempt as `wardryx-denied-tool.yaml`, plus Verdryx's off-path reaction to it | `wardryx` | `403` + `x-fuse-wardryx: deny`, and a `verdryx`/`quality_drift` event within 10s (see [Async reaction checks](#async-reaction-checks)) |
 | `injected-page.yaml` | An agent reads a web page that instructs it to exfiltrate data, then tries to; the firewall should refuse on the context's taint labels, not on the wording | `taint` | `403`, and a `tokenfuse`/`taint_block` event within 10s |
 | `reaction-chain-reaches-heraldyx.yaml` | The same denied tool-use attempt, chased three hops instead of one: the in-path refusal, Wardryx's own off-path record of it, and heraldyx's actual notification, all correlated by one run_id across two steps | `wardryx` | `403` + `x-fuse-wardryx: deny`, a `wardryx`/`policy_deny` event within 10s, then a `heraldyx`/`alert_sent` event within 20s |
@@ -202,7 +206,27 @@ guardrail, all loaded together by a plain `mockryx run ./scenarios`:
 publicly documented, non-functional placeholder access key ID (used
 throughout AWS's documentation), never a real credential.
 
-**One of these eight cannot currently fire, and says so.** `injected-page.yaml`
+`token-flood.yaml` and `runaway-budget.yaml` both end in a `402`, and they
+rehearse different things. `runaway-budget` sends a loop of small calls and
+lets spend accumulate until the Breaker trips. `token-flood` sends one call
+and nothing else: its `max_tokens` is large enough that the call could cost
+more than the whole run budget (one cent), so the gateway has to refuse it at
+reservation, on the first attempt, before anything is spent. A gateway that
+only counts what it has already spent passes the first and fails the second.
+
+`pii-in-prompt.yaml` uses an `example.com` address and a number from the UK
+fiction range, never a real person's details. TokenFuse leaves PII blocking
+off unless the operator sets `TOKENFUSE_DLP_PII=block`, so the drill declares
+`requires: dlp` and reports `skipped_not_configured`, not a `Finding`, against
+a gateway that has not turned it on: that is the operator's choice, not a broken
+guardrail. If you have turned PII blocking on and still see the skip, it is not
+on; pass `--fail-on-skip` to make that a failing run. It rehearses the `block`
+mode: a gateway in `mask` or `shadow` mode forwards the call (redacted, or
+merely flagged), answers `200`, and the drill reports a `Finding`, the same
+reading `dlp-secret-leak` gives the secret scanner's own `mask` and `shadow`
+modes.
+
+**One of these ten cannot currently fire, and says so.** `injected-page.yaml`
 reports `skipped_not_configured` even against a gateway whose agent firewall is
 in `enforce` mode: the firewall judges the tools a model actually INVOKES, and a
 scenario can only declare tools, so the drill never reaches it. The scenario
@@ -255,7 +279,7 @@ reports `skipped_not_configured` instead, with its raw mismatches dropped:
 they reflect an absent feature, not a defensive gap.
 
 A scenario with no `requires` (the budget Breaker is a core, always-on
-gateway feature, so `runaway-budget` has none) can never be
+gateway feature, so `runaway-budget` and `token-flood` have none) can never be
 `skipped_not_configured`: a miss there is always a `Finding`. Likewise, a
 transport error (the gateway could not be reached at all) is always a
 `Finding`, regardless of `requires`: being unreachable is never evidence a
@@ -665,7 +689,7 @@ or unwritable events path never blocks a run.
 - [x] human + JSON report rendering, save/load (`mockryx report`)
 - [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.ChainedWriter` (SPEC 6.5 prev_hash chain), opt-in (`MOCKRYX_EVENTS_PATH`)
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
-- [x] eight shipped example scenarios in `scenarios/`: `runaway-budget` (core Breaker), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` (DLP), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction), `injected-page` (the agent firewall, taint labels not wording), `reaction-chain-reaches-heraldyx` (Wardryx's in-path deny, its own off-path record, and heraldyx's actual notification, all three); plus one game-day drill outside `scenarios/`, `scenarios/game-day/provider-outage.yaml`, for a deliberately unreachable upstream
+- [x] ten shipped example scenarios in `scenarios/`: `runaway-budget` and `token-flood` (core Breaker: spend accumulated over a loop, and one call refused at reservation), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` and `pii-in-prompt` (DLP: a secret, and personal data when PII blocking is on), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction), `injected-page` (the agent firewall, taint labels not wording), `reaction-chain-reaches-heraldyx` (Wardryx's in-path deny, its own off-path record, and heraldyx's actual notification, all three); plus one game-day drill outside `scenarios/`, `scenarios/game-day/provider-outage.yaml`, for a deliberately unreachable upstream
 - [x] `agent-stack-go` v1.1.0 pinned dependency, no local `replace`
 - [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`); exercised by `scripts/selftest.sh` both ways (a matching event found, a missing one reported as a `Finding`), and shipped in `verdryx-quality-drift.yaml`
 - [ ] Later: additional built-in scenario packs, as new guardrails ship in TokenFuse / Wardryx

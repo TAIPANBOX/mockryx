@@ -55,13 +55,15 @@ fi
 # repeated defect and the reason this script exists at all.
 #
 # Written as a WORD there rather than a digit, because it reads as prose, so
-# the check maps the words it may be. A count past ten would need a digit and
-# would fail here loudly rather than silently stop matching.
+# the check maps the words it may be. A count past twenty would need a digit and
+# would fail here loudly rather than silently stop matching. The list stopped at
+# ten until 2026-10-12, when the eleventh scenario (counting game-day) arrived
+# and this gate, correctly, refused to guess the spelling.
 scen_actual=$(find scenarios -name '*.yaml' -type f | wc -l | tr -d ' ')
-WORDS=(zero one two three four five six seven eight nine ten)
+WORDS=(zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty)
 scen_word="${WORDS[$scen_actual]:-}"
 if [ -z "$scen_word" ]; then
-	note "there are $scen_actual scenarios and this check only knows how to spell up to ten"
+	note "there are $scen_actual scenarios and this check only knows how to spell up to twenty"
 	note "  write the number as a digit in VALIDATION.md and teach this script to read it"
 elif ! grep -qiE "^${scen_word} scenarios ship now|[^a-z]${scen_word} scenarios ship now" VALIDATION.md; then
 	found=$(grep -oiE '[a-z]+ scenarios ship now' VALIDATION.md | head -1)
@@ -138,7 +140,7 @@ fi
 cat_n=$(find scenarios -maxdepth 1 -name '*.yaml' -type f | wc -l | tr -d ' ')
 cat_word="${WORDS[$cat_n]:-}"
 if [ -z "$cat_word" ]; then
-	note "there are $cat_n scenarios in scenarios/ and this check only knows how to spell up to ten"
+	note "there are $cat_n scenarios in scenarios/ and this check only knows how to spell up to twenty"
 	note "  write the number as a digit in README.md and teach this script to read it"
 elif ! grep -qiE "^${cat_word} example scenarios ship in|[^a-z]${cat_word} example scenarios ship in" "$readme"; then
 	found=$(grep -oiE '[a-z]+ example scenarios ship in' "$readme" | head -1)

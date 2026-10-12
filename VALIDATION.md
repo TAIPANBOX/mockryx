@@ -52,10 +52,11 @@ zero through. This is `wardryx-denied-tool`'s property under a failure mode no d
 ## What this does not cover
 
 This page is a record of two campaigns, and it stays true about the moment it describes rather than
-about the repository today. Nine scenarios ship now, and the two campaigns above exercised three of
-them. `on-behalf-of-forged-chain`, `approval-required`, `verdryx-quality-drift` and `injected-page`
-were written afterwards and neither campaign included them, so nobody should read "0 gaps" as
-covering those: cite it for the three that were actually fired on Hetzner.
+about the repository today. Eleven scenarios ship now (ten in `scenarios/` and the game-day drill),
+and the two campaigns above exercised three of them. `on-behalf-of-forged-chain`, `approval-required`,
+`verdryx-quality-drift` and `injected-page` were written afterwards and neither campaign included
+them, nor did they include `token-flood` and `pii-in-prompt`, which came later still, so nobody should
+read "0 gaps" as covering those: cite it for the three that were actually fired on Hetzner.
 
 Those four have since been fired locally instead, twice, on 2026-08-25 and again on 2026-08-26, in
 the two sections below. That is different infrastructure and a shorter run, and it is still a real
@@ -181,6 +182,76 @@ a directory that does not exist, so every delivery failed, the scenario PASSED, 
 journals `alert_sent` with `"outcome": "refused"` whether the send worked or not, and mockryx matches
 on source, type and run_id only. Step 2 therefore proves heraldyx reacted and tried, not that a human
 was told. That limit is now written into the scenario file.
+
+## `token-flood` and `pii-in-prompt`, fired at TokenFuse v1.10.0, 2026-10-12
+
+Two drills added together: `token-flood` (unbounded consumption in a single call, OWASP LLM10:2025) and
+`pii-in-prompt` (personal data pasted into a prompt, OWASP LLM02:2025). Both were fired at a real gateway
+with real enforcement and a stub provider, in two configurations, and every number below was read off
+the run's own output.
+
+**Gateway.** The official TokenFuse `v1.10.0` (`a0de01b`) release binary for aarch64-apple-darwin,
+sha256 `2c12e4672e1f3fb22de6586f6fcec4a33ef5bc69f47b97f04f46d39df6d202a8`, run twice on loopback with
+`TOKENFUSE_ALLOW_STUB=1 TOKENFUSE_MODE=enforce TOKENFUSE_DLP=block` (no provider, no key, no network):
+on `127.0.0.1:14110` with `TOKENFUSE_DLP_PII` unset (its default, which the startup line reports as
+`dlp_pii=Off`), and on `127.0.0.1:14111` with `TOKENFUSE_DLP_PII=block` added. No Wardryx, no heraldyx.
+Mockryx was built from this branch with `go build ./cmd/mockryx` (Go 1.27.2). Every gateway was started
+fresh for the first run it served.
+
+```sh
+mockryx run --gateway http://127.0.0.1:14110 --watch-events empty-events.ndjson scenarios
+mockryx run --gateway http://127.0.0.1:14111 --watch-events empty-events.ndjson scenarios
+```
+
+**All ten of `scenarios/`, together, in one run each.**
+
+| Scenario | `:14110` (PII blocking off, the default) | `:14111` (`TOKENFUSE_DLP_PII=block`) |
+|---|---|---|
+| `token-flood` | passed, 1 call, $0.000000 | passed, 1 call, $0.000000 |
+| `pii-in-prompt` | skipped_not_configured | passed, 1 call, $0.000000 |
+| `dlp-secret-leak` | passed | passed |
+| `runaway-budget` | passed (2 calls) | passed (2 calls) |
+| `approval-required`, `on-behalf-of-forged-chain`, `wardryx-denied-tool`, `verdryx-quality-drift`, `reaction-chain-reaches-heraldyx`, `injected-page` | skipped_not_configured (no Wardryx, no taint) | skipped_not_configured |
+
+Both runs exited `0` with no `Finding`: four passed, six skipped. `token-flood` was refused on the first
+attempt with `402` and `spent_usd` 0.0 in the gateway's body, so nothing was spent and nothing reached
+the stub. The second run against the same `:14110` gateway gave the same verdicts; the one number that
+moved was `runaway-budget`, which made 1 call instead of 2 because it pins its `run_id` and that run
+already held its tripped budget, an older property of that drill and not of the new ones, which mint a
+fresh `run_id` per invocation.
+
+**Where `pii-in-prompt` ships, decided by these runs.** Three requirements, each measured:
+
+- Default DLP, run together with every shipped scenario: `skipped_not_configured`, no `Finding`, exit `0`
+  (`:14110` above). The gateway stamps `x-fuse-dlp` only when the scanner reacts, and with PII blocking off
+  this prompt gets a plain `200` with no `x-fuse-dlp`, so `requires: dlp` reads it as not configured. The
+  skip decision is made per scenario, not across the run: `dlp-secret-leak` did see `x-fuse-dlp` in the
+  same run and `pii-in-prompt` still skipped.
+- `TOKENFUSE_DLP_PII=block`: `403` with `x-fuse-dlp: blocked: 2 pii finding(s): pii_email, pii_phone`,
+  `passed` (`:14111` above).
+- A gateway that enforces nothing, with `scripts/selftest.sh`'s own stub (the stub's code, extracted and run
+  on a loopback port): silent, `pii-in-prompt` is `skipped_not_configured` and `token-flood` is `failed`;
+  signalling (stamps `x-fuse-dlp: off`, answers `200`), both are `failed`.
+
+So it ships in `scenarios/` with `requires: dlp`, and there is no opt-in directory.
+
+**What the other PII modes do.** One-scenario runs against `:14111` restarted with each mode:
+`TOKENFUSE_DLP_PII=mask` and `=shadow` both answer `200` with `x-fuse-dlp: masked ...` / `found ...`, and
+`pii-in-prompt` reports a `Finding` (exit `1`) for both. That is the same reading `dlp-secret-leak` gives the
+secret scanner: with `TOKENFUSE_DLP=mask`, measured the same day, it also reports a `Finding`
+(`200`, `x-fuse-dlp: masked 1 secret(s): aws_access_key`). Both drills rehearse `block`.
+
+**The reservation threshold behind `token-flood`.** `claude-haiku`, budget `0.01`, stub mode: `max_tokens`
+2000 was served (`200`), 2200 refused (`402`). The estimate for 64000 tokens is between 0.29 and 0.30 USD
+(refused at a 0.29 budget, served at 0.30), and for 200000 tokens between 0.92 and 0.93. The drill uses
+64000: about thirty times the budget, and well under the 1 USD `require_human_above_usd` the demo stacks
+set, which matters because Wardryx decides before the reservation in TokenFuse's request path (read from
+`proxy.rs`, not run: no Wardryx was part of this run). A model
+name the gateway has no price for (`unpriced-model-xyz`) was refused with `402` as well.
+
+**Red first.** `token-flood` against TokenFuse in `TOKENFUSE_MODE=shadow` (not enforcing): `failed`,
+"expected status 402 within 1 attempt(s), got 200", one call, $0.0028 burned, exit `1`. Against the
+`scripts/selftest.sh` stub, as above, neither new drill passes in either shape.
 
 ## Method (the Hetzner campaigns above)
 
