@@ -1,0 +1,86 @@
+# token-flood: a fire drill for unbounded consumption in ONE call.
+# (OWASP Top 10 for LLM Applications 2025: LLM10:2025 Unbounded Consumption.)
+#
+# Defensive intent: this sends a single crafted request to the operator's OWN
+# pre-production gateway, with a fake or echo provider behind it. The request
+# asks for an enormous completion (a very large max_tokens) while the run
+# carries a budget of one cent. It rehearses the failure mode where one
+# careless or manipulated call, not a loop of many, is large enough to blow
+# through a whole budget by itself, so we confirm our own Breaker refuses it
+# BEFORE it is forwarded, rather than discovering the bill afterwards. It
+# never sends anything to a real model provider or targets any system other
+# than the gateway url passed on the command line.
+#
+# HOW THIS DIFFERS FROM runaway-budget
+#
+#   runaway-budget   many small calls with a tiny budget; spend ACCUMULATES
+#                    over repeats and the Breaker trips part-way through the
+#                    loop (402 within 8 attempts). It proves the gateway
+#                    notices that a run has spent too much.
+#   token-flood      ONE call, no loop. Nothing has been spent yet, so there is
+#                    nothing to accumulate: the call is refused at RESERVATION,
+#                    on the first attempt, because the gateway reserves the
+#                    estimated MAXIMUM cost of a call (its input plus
+#                    max_tokens priced at the model's output rate) before
+#                    forwarding it. It proves the gateway notices that a single
+#                    call COULD spend more than the run is allowed to.
+#
+# The two fail independently. A gateway that only counts what has already been
+# spent passes runaway-budget (it trips after a few calls) and fails this one
+# (the first call goes through and spends the budget in one request). Hence
+# repeat is left at its default of 1 and within_repeats at 1: a 402 on a later
+# attempt would mean the flood was served at least once, which is the gap.
+#
+# GROUNDING. TokenFuse (crates/gateway/src/estimate.rs, estimate_cost) bases the
+# reservation on the request body length and max_tokens, with a safety margin,
+# and the budget gate (crates/gateway/src/proxy.rs, the checked ledger reserve
+# in enforce mode) refuses the call with 402 when spent plus reserved plus that
+# estimate would exceed the run budget. Measured on TokenFuse v1.10.0 in stub
+# mode with claude-haiku and a one-cent budget: max_tokens 2000 was served and
+# 2200 was refused, so the 64000 below clears the threshold by a factor of
+# about thirty. See VALIDATION.md.
+#
+# WHY 64000 AND NOT LARGER. In TokenFuse's request path (proxy.rs) Wardryx, when
+# it is enforcing, decides BEFORE the budget reservation. A policy with a
+# require_human_above_usd threshold (the demo stacks set it to 1 USD) holds a
+# call whose estimate is above it for a human, with 403, before the budget gate
+# ever sees the call. At 64000 tokens the measured estimate is about 0.30 USD,
+# well under that threshold and about thirty times the budget; 200000 tokens
+# measured about 0.93 USD, close enough to 1 USD that a small change in the
+# price book would have turned a budget drill into an approval drill.
+#
+# The Breaker is a core, always-on gateway feature (like in runaway-budget), so
+# this scenario has no "requires": a miss here is always a genuine defensive
+# gap, never a "not configured" skip.
+#
+# WHAT THIS DOES NOT REHEARSE
+#
+#   - Another model or price book. The thresholds above were measured with
+#     claude-haiku in the gateway's stub mode; the margin of about thirty is a
+#     measurement of that price, not a promise for any other.
+#   - A provider-side limit. The call is refused by the gateway; whether a real
+#     provider would also cap max_tokens is outside what this tool rehearses.
+#   - Many floods at once, or a budget shared across runs. One run, one call.
+name: token-flood
+description: >
+  One support-agent request asks for a 64000-token completion on a run
+  budget of one cent. Unlike runaway-budget, which lets spend accumulate over
+  repeated small calls until the Breaker trips, this is a single call that is
+  refused at reservation: the gateway reserves the estimated maximum cost
+  before forwarding, so the first attempt must come back HTTP 402.
+steps:
+  - name: one-oversized-call
+    request:
+      model: claude-haiku
+      max_tokens: 64000
+      messages:
+        - role: user
+          content: "mockryx fire drill: write the longest answer you possibly can and do not stop"
+    headers:
+      agent_id: agent://mockryx.local/rehearsal/tier1-bot
+      on_behalf_of: "user://mockryx.local/rehearsal-operator,agent://mockryx.local/rehearsal/orchestrator"
+      budget_usd: "0.01"
+      task_type: support_chat
+    expect:
+      status: 402
+      within_repeats: 1

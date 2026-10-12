@@ -1,0 +1,75 @@
+# pii-in-prompt: a fire drill for personal data leaving in a prompt.
+# (OWASP Top 10 for LLM Applications 2025: LLM02:2025 Sensitive Information
+# Disclosure.)
+#
+# Defensive intent: this sends a prompt in which a support agent has pasted a
+# customer's email address and phone number (both obviously fake: an
+# example.com address and a number from the UK fiction range) to the
+# operator's OWN pre-production gateway, in front of a fake or echo provider.
+# It rehearses "what happens when one of our agents forwards a customer's
+# contact details to a model", so we confirm the gateway's PII blocking stops
+# the call before the details reach a model, real or fake. It never targets
+# any system other than the gateway url passed on the command line.
+#
+# PII BLOCKING IS OFF BY DEFAULT IN TOKENFUSE, AND THAT IS A CHOICE, NOT A GAP.
+#
+# TokenFuse scans prompts for secrets by default (TOKENFUSE_DLP=block, which
+# dlp-secret-leak rehearses) but leaves personal data alone unless the operator
+# opts in with TOKENFUSE_DLP_PII=block (the values are off, shadow, mask and
+# block, switched independently of the secret scan). Its false positives are
+# ordinary prose rather than credentials, so it ships off. A gateway running
+# with PII blocking off is therefore configured exactly as its operator meant
+# it to be, and this drill must not call that a broken guardrail.
+#
+# That is what "requires: dlp" is for here, and it is the same convention
+# dlp-secret-leak uses. The gateway stamps its x-fuse-dlp response header only
+# when the scanner reacts to a prompt. With PII blocking off, this prompt
+# (which holds no secret) is forwarded untouched and carries no x-fuse-dlp
+# header, so the drill reports skipped_not_configured and not a Finding. With
+# TOKENFUSE_DLP_PII=block the gateway refuses the call and stamps x-fuse-dlp,
+# and the drill passes. If an operator who has turned PII blocking on finds
+# this drill skipped, that is the signal that it is not actually on.
+#
+# An operator who has decided PII blocking MUST be on can pass --fail-on-skip
+# to promote that skip to a Finding (see README, "Findings vs. not
+# configured").
+#
+# This drill rehearses the block mode. A gateway running TOKENFUSE_DLP_PII in
+# mask or shadow mode stamps x-fuse-dlp and forwards the call (redacted, or
+# merely flagged), so it answers 200 and this drill reports a Finding there:
+# that is the same reading dlp-secret-leak gives the secret scanner's own mask
+# and shadow modes, not a different rule.
+#
+# WHAT THIS DOES NOT REHEARSE
+#
+#   - What the scanner can find. TokenFuse matches an email address, a
+#     Luhn-valid card number and an international (leading "+") phone number
+#     by pattern; a bare national number, a name or a postal address are not
+#     matched. This drill sends the two it matches (an email address and an
+#     international phone number) and says nothing about the rest.
+#   - Anything about the 403 beyond its status. Only the status is asserted,
+#     like dlp-secret-leak, so a change in the gateway's wording of the reason
+#     cannot turn this into a false Finding.
+name: pii-in-prompt
+requires: dlp
+description: >
+  A support agent pastes a customer's email address and phone number into a
+  prompt while drafting a reply. With the gateway's PII blocking on
+  (TOKENFUSE_DLP_PII=block), the call must be refused before it reaches any
+  model, with a 403. With PII blocking off, its default, the drill reports
+  not configured instead of a Finding.
+steps:
+  - name: prompt-with-customer-contact-details
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "Customer Jane Roe wrote in about invoice 4471. Call her on +44 7700 900123 or write to jane.roe@example.com, and draft a polite reply."
+    headers:
+      agent_id: agent://mockryx.local/rehearsal/support-bot
+      on_behalf_of: "user://mockryx.local/rehearsal-operator"
+      budget_usd: "1.00"
+      task_type: support_chat
+    expect:
+      status: 403
