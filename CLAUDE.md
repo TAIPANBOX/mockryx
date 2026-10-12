@@ -103,8 +103,13 @@ an absent invariant.
    hardcodes a host": **the scenario format has no field a target could go in.**
    The address comes from `--gateway` or `$MOCKRYX_GATEWAY` and nowhere else, so
    a scenario file is physically incapable of pointing this tool at somebody
-   else's system. *(test: `TestScenarioFormatCannotCarryATarget`,
-   `TestShippedScenariosNameNoTarget`)*
+   else's system. The same holds for the MCP broker an `mcp` step talks to: its
+   address is `--mcp-broker` or `$MOCKRYX_MCP_BROKER` and nowhere else, and the
+   format has no field for it, nor for choosing one of the broker's upstreams.
+   *(test: `TestScenarioFormatCannotCarryATarget`, `TestTheBrokerIsATargetShapedWord`,
+   `TestEveryStringInAScenarioIsInspected`, `TestShippedScenariosNameNoTarget`,
+   which reads `scenarios/`, `scenarios/mcp/` and `scenarios/game-day/` and every
+   string in them, tool history and `params` included)*
 
 7. **A published binary can be rebuilt, byte for byte, by the operator being
    asked to trust it.** Mockryx points an adversarial tool at somebody's own
@@ -165,12 +170,14 @@ an absent invariant.
    mutations that changed no bytes, and three of the five had been verified by
    hand against the same gate minutes earlier. So every mutation asserts it
    applied: a case whose edit changed nothing is a failure here, not a pass.
-   *(gate: `scripts/gates-have-teeth.sh`, 18 cases: eight real faults each gate
-   must catch, four non-faults they must not, and six subjects taken away
+   *(gate: `scripts/gates-have-teeth.sh`, 26 cases: thirteen real faults each
+   gate must catch, five non-faults they must not, and eight subjects taken away
    entirely, where the gate must say it measured nothing rather than report OK.
-   `selftest.sh` gets one case rather than several because it builds the binary
-   and stands up a stub gateway; the one it gets is the property it names
-   itself, that a tree which does not build measured nothing.)*
+   `selftest.sh` gets few cases rather than many because it builds the binary
+   and stands up stub gateways; it gets the property it names itself, that a
+   tree which does not build measured nothing, and, since 2026-10-12, one case
+   per new step kind: a `tool_check` drill and an `mcp` drill that cannot fail,
+   each of which it must refuse.)*
 
    **What it does not cover.** It cannot test itself; nothing watches this one
    fail. It proves each gate catches the faults named in it, not every fault of
@@ -189,7 +196,10 @@ an absent invariant.
     *(gate: `scripts/readme-numbers.sh`, both directions, plus the prose count
     above the table checked against the files rather than the rows. Top level
     only: `scenarios/game-day/` is deliberately outside that table, because
-    `LoadDir` does not recurse. Verified by breaking, five ways: a row deleted,
+    `LoadDir` does not recurse. `scenarios/mcp/`, the broker drills, is outside
+    it for the same reason and has a table of its own, whose rows carry
+    `mcp/<file>.yaml`, held the same way: both directions, a prose count, and a
+    refusal to report OK once either subject has gone. Verified by breaking, five ways: a row deleted,
     a row renamed to a file that does not exist, a scenario file planted with
     the README untouched, the whole table taken away, and `scenarios/` emptied.
     The last two must report that they measured nothing rather than pass, and
@@ -228,6 +238,38 @@ an absent invariant.
     `TestRunEventCheckFindingOmitsRefusedOnTimeCountWhenZero` in
     `internal/runner/runner_test.go` for the `Detail` text.)*
 
+12. **Every step kind names the signal that tells "not configured" from "did not
+    hold", and a reply that is not the protocol at all is never a skip.** A
+    `request` step reads the `x-fuse-<requires>` response header. A `tool_check`
+    step reads the gateway's own `governed` field (`false` when the agent
+    firewall is off, `true` whenever it judged the call, shadow included), so a
+    scenario with one must declare `requires: taint`. An `mcp` step reads the
+    reply itself, because the broker stamps no header: a JSON-RPC error with a
+    code the broker reserves for its guardrails (`-32001` to `-32010`), so a
+    scenario with one must declare some `requires`. A check-tool-call answer
+    with no decision, and a broker reply that is not JSON-RPC, are hard Findings
+    like a transport error. An `mcp` step with no `--mcp-broker`, or one that
+    does not answer, refuses the whole run with exit `2` before a request is
+    sent: a run of transport Findings would have rehearsed nothing and exited
+    `1`, which a CI gate reads as a guardrail gap. **The limit, stated once:** a
+    broker with a scan off, in `warn`, `mask` or `shadow`, and one whose `block`
+    let a call through, answer identically, so they all read as not configured;
+    `--fail-on-skip` is how an operator insists. `@decided 2026-10-12`: these
+    step kinds, and tool history in a request's messages, were approved as scenario
+    capabilities; the broker drills live in `scenarios/mcp/` so that no existing
+    pipeline needs a broker it never had; and a drill ships only for a guardrail
+    the current TokenFuse release has. *(test: `TestToolCheckStepNeedsRequiresTaint`,
+    `TestMCPStepNeedsAMethodAndARequires`, `TestToolCheckAnsweringUngovernedReadsAsNotConfigured`,
+    `TestToolCheckShadowModeIsAGapNotASkip`, `TestMCPAResultWithNoGuardrailSpeakingReadsAsNotConfigured`,
+    `TestMCPAnUpstreamsOwnErrorIsNotAGuardrailSignal`,
+    `TestToolCheckAnAnswerThatIsNotADecisionIsAHardFindingNotASkip`,
+    `TestMCPAnUnreadableReplyIsAHardFindingNotASkip`,
+    `TestRunCommandMCPStepWithNoBrokerIsAUsageError`,
+    `TestRunCommandMCPStepWithAnUnreachableBrokerIsAUsageError`; gate:
+    `scripts/selftest.sh`, which runs both new kinds against a stub that
+    announces and holds nothing and requires every drill to fail or skip, and
+    against a stub that holds and requires every drill to pass)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
@@ -258,6 +300,23 @@ has that its own drills can see anything.
 What it does not cover: whether a scenario rehearses the guardrail it claims to.
 A scenario could expect the right status for the wrong reason, and nothing here
 would notice.
+
+It was found on 2026-10-12 that this script could print FAIL and exit 0: it has
+no `set -e`, so its exit status was the status of its LAST command, and the
+watch-events check that comes last passes whatever the checks before it said.
+Every check now records its failure and the script exits with it. The
+discovery came from planting a drill that cannot fail, which is also how the
+two new `gates-have-teeth.sh` cases for it work.
+
+Since the same day it also runs the two new step kinds (see invariant 12). The
+stubs answer `/v1/fuse/check-tool-call` and the broker's JSON-RPC by path, on
+the same port, in four shapes: silent (the firewall is off, the broker says
+nothing), signalling (it announces itself and enforces nothing), enforcing, and
+`firewall`, which keeps taint per run so the same tool is allowed before a web
+read and denied after it. `scenarios/mcp/` gets its own pair of runs because a
+plain run of `scenarios/` never loads it, and a pass-path run against the
+stub that holds, because a drill that cannot pass is as useless as one that
+cannot fail.
 
 **Neither the silent nor the signalling stub ever reaches `internal/watch`.**
 Both answer every request with `200`, `verdryx-quality-drift.yaml` expects
@@ -299,7 +358,12 @@ Stop and tell the user, then wait, when a task hits any of these:
 
 - Any change to an exit code, or to what counts as a finding.
 - Any new scenario capability, because the defensive boundary is a product
-  decision, not an implementation detail.
+  decision, not an implementation detail. Two exist, `@decided 2026-10-12`:
+  structured tool history in a request's messages together with the
+  `tool_check` step, and the `mcp` step with its `--mcp-broker` setting. Each
+  came with its limits (the broker's address is never a scenario field; a drill
+  ships only for a guardrail the current TokenFuse release has), and a third
+  capability is a new decision, not an extension of these.
 - Bumping the `agent-stack-go` tag, or adding anything to `go.mod`.
 - Cutting a tag or release.
 

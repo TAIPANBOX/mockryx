@@ -44,13 +44,22 @@ nothing more.
    `steps`.
 
    Required, per `internal/scenario/scenario.go`'s `validate` function: the
-   scenario's `name`; at least one entry in `steps`; and, per step, `name`,
-   `request.model`, at least one entry in `request.messages`, and
-   `expect.status`. Everything else is optional: `description`, `requires`,
-   `request.max_tokens`, `request.tools`, and every `headers.*` field.
-   `steps[].repeat` defaults to 1. `expect.within_repeats` defaults to
-   `repeat`. Set `expect.event` and its `source` and `type` become required
-   too, with `within` defaulting to 10s. This is only the required subset;
+   scenario's `name`; at least one entry in `steps`; and, per step, a `name`
+   and **exactly one** of three kinds. A `request` step needs `request.model`,
+   at least one entry in `request.messages`, and `expect.status`. A
+   `tool_check` step needs `tool_check.tool` and `expect.decision` (`allow` or
+   `deny`), and the scenario must declare `requires: taint`. An `mcp` step
+   needs `mcp.method` and exactly one of `expect.error_code` and
+   `expect.result`, and the scenario must declare some `requires`. Everything
+   else is optional: `description`, `requires` (except where a kind demands it),
+   `request.max_tokens`, `request.tools`, and the `headers.*` fields a kind
+   sends (a `tool_check` or `mcp` step sends only `run_id` and `agent_id`, and
+   refuses the rest). `steps[].repeat` defaults to 1. `expect.within_repeats`
+   defaults to `repeat`. Set `expect.event` and its `source` and `type` become
+   required too, with `within` defaulting to 10s (not on an `mcp` step). A
+   message's `content` may be a list of `text`, `tool_use` and `tool_result`
+   blocks instead of a string, which is how a drill supplies tool history. This
+   is only the required subset;
    README.md's ["Scenario file format"](README.md#scenario-file-format) is
    the full, annotated reference for every field, and is not duplicated
    here so there is only one copy to keep honest.
@@ -64,6 +73,16 @@ nothing more.
      `internal/scenario/target_test.go`, which loads and inspects every
      file in the directory. Neither of those is a fixture you write by
      hand; the scenario file's own `expect:` block is the assertion.
+     Add its row to the catalog table in README.md in the same commit, and
+     move the count sentence above that table: `scripts/readme-numbers.sh`
+     fails the build otherwise.
+   - A drill with an `mcp` step goes in `scenarios/mcp/` instead, not
+     `scenarios/`. A run that loads an `mcp` step with no `--mcp-broker`
+     refuses with exit `2`, so a broker drill at the top level would turn
+     every pipeline that runs the shipped scenarios against a gateway alone
+     from green into a usage error. It gets a row in the broker table
+     (rows start `mcp/`) and the count sentence above it, held by the same
+     script, and `selftest.sh` runs that directory on its own.
    - For a private scenario, any directory works: `mockryx` only ever reads
      the one directory you pass it on the command line, never anywhere
      else.
@@ -75,6 +94,8 @@ nothing more.
    go build -o bin/mockryx ./cmd/mockryx
    mkdir -p /tmp/mockryx-check && cp scenarios/my-scenario.yaml /tmp/mockryx-check/
    ./bin/mockryx run --gateway http://127.0.0.1:8080 /tmp/mockryx-check
+   # a broker drill also needs the broker:
+   ./bin/mockryx run --gateway http://127.0.0.1:8080 --mcp-broker http://127.0.0.1:4200 /tmp/mockryx-check
    ```
 
    Check it both ways before trusting it: against a gateway with the
@@ -92,19 +113,25 @@ nothing more.
    `TestScenarioFormatCannotCarryATarget`); it uses an obviously-fake
    rehearsal identity (`agent://mockryx.local/rehearsal/...`) so its
    traffic is never mistaken for a real agent's; it sets `requires:`
-   whenever the guardrail is optional (`wardryx`, `dlp`, or a new
+   whenever the guardrail is optional (`wardryx`, `dlp`, `taint`, or a new
    convention you introduce), so an operator who has not enabled that
    feature gets `skipped_not_configured` instead of a false alarm, and
    leaves `requires:` unset only for a core, always-on guardrail like the
-   budget Breaker; and its `expect:` is grounded in what the gateway or
+   budget Breaker. Say which signal decides it in the file's header: a
+   `request` step's is the `x-fuse-<requires>` response header, a `tool_check`
+   step's is the answer's `governed` field, an `mcp` step's is a JSON-RPC
+   error in the broker's reserved range (README, "Findings vs. not
+   configured"). It ships only for a guardrail the CURRENT TokenFuse release
+   has: a drill for one that is merged and not yet released would report a
+   gap to every operator on the version they can actually run; and its `expect:` is grounded in what the gateway or
    policy engine actually does, cited from source the way
    `on-behalf-of-forged-chain.yaml` and `approval-required.yaml` cite
    Wardryx's PDP, rather than guessed at.
 
 5. **The exit code is the contract.** `0` means every guardrail held, `1`
    means the run found a defensive gap (a `Finding`) worth CI failing on,
-   `2` means a usage, config, or load error and nothing was actually
-   rehearsed. See ["CI gating model"](README.md#ci-gating-model) in
+   `2` means a usage, config, or load error (an `mcp` step with no reachable
+   `--mcp-broker` is one) and nothing was actually rehearsed. See ["CI gating model"](README.md#ci-gating-model) in
    README.md. Changing what maps to which code is escalate-first territory
    (CLAUDE.md, "Escalate, do not push through"), not a routine edit.
 

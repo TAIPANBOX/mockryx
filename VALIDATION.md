@@ -52,10 +52,11 @@ zero through. This is `wardryx-denied-tool`'s property under a failure mode no d
 ## What this does not cover
 
 This page is a record of two campaigns, and it stays true about the moment it describes rather than
-about the repository today. Eleven scenarios ship now (ten in `scenarios/` and the game-day drill),
-and the two campaigns above exercised three of them. `on-behalf-of-forged-chain`, `approval-required`,
+about the repository today. Fourteen scenarios ship now (eleven in `scenarios/`, the two broker drills in `scenarios/mcp/`, and the
+game-day drill), and the two campaigns above exercised three of them. `on-behalf-of-forged-chain`, `approval-required`,
 `verdryx-quality-drift` and `injected-page` were written afterwards and neither campaign included
-them, nor did they include `token-flood` and `pii-in-prompt`, which came later still, so nobody should
+them, nor did they include `token-flood` and `pii-in-prompt`, which came later still, nor
+`egress-after-untrusted-read` and the two broker drills, which came last, so nobody should
 read "0 gaps" as covering those: cite it for the three that were actually fired on Hetzner.
 
 Those four have since been fired locally instead, twice, on 2026-08-25 and again on 2026-08-26, in
@@ -165,6 +166,9 @@ taints nothing (`taint::tool_names_in` reads INVOKED tools; the declared array i
 circular for this drill (the header is only ever stamped on the block itself), and the drill is
 unfireable from a scenario file as the format stands. The scenario's own header comment now says all
 of this; closing it needs a new scenario capability, which is escalate-first.
+(Closed on 2026-10-12: the capability was approved and `injected-page` fires now. The section
+"Tool history, `tool_check` and the broker drills" below has the measurement. This paragraph stays
+as the record of what was true on 2026-08-26.)
 
 **`provider-outage-game-day` passes now, exit 0, and is a regression guard rather than a standing
 Finding.** Same stack with `TOKENFUSE_UPSTREAM=http://127.0.0.1:1`: `502` on both steps, and this
@@ -252,6 +256,102 @@ name the gateway has no price for (`unpriced-model-xyz`) was refused with `402` 
 **Red first.** `token-flood` against TokenFuse in `TOKENFUSE_MODE=shadow` (not enforcing): `failed`,
 "expected status 402 within 1 attempt(s), got 200", one call, $0.0028 burned, exit `1`. Against the
 `scripts/selftest.sh` stub, as above, neither new drill passes in either shape.
+
+## Tool history, `tool_check` and the broker drills, fired at TokenFuse v1.10.0, 2026-10-12
+
+Three things the scenario format could not say until today, and the drills that needed them: structured
+tool history in a request's messages, the `tool_check` step (`POST /v1/fuse/check-tool-call`), and the
+`mcp` step (one JSON-RPC request to a broker named by `--mcp-broker`). They made `injected-page` fireable
+at last, added `egress-after-untrusted-read`, and added the two broker drills in `scenarios/mcp/`
+(`mcp-secret-in-arguments`, `mcp-pii-in-arguments`). Every number below was read off the run's own output.
+
+**Gateway and broker.** The official TokenFuse `v1.10.0` (`a0de01b`) release binary for aarch64-apple-darwin,
+sha256 `2c12e4672e1f3fb22de6586f6fcec4a33ef5bc69f47b97f04f46d39df6d202a8` (the same file as the section
+above), on loopback. The gateway with `TOKENFUSE_ALLOW_STUB=1 TOKENFUSE_MODE=enforce TOKENFUSE_FIREWALL=<mode>`
+and `TOKENFUSE_EVENTS_PATH` on a file that mockryx watched. The broker, `tokenfuse mcp-broker`, with
+`TOKENFUSE_MCP_SCAN=block TOKENFUSE_MCP_DLP=<mode> TOKENFUSE_MCP_DLP_PII=<mode>` in front of a stdlib Python
+MCP stub that logged every body it received. No Wardryx, no heraldyx, no provider, no key. Mockryx was built
+from this branch with `go build ./cmd/mockryx` (Go 1.27.1, `GOTOOLCHAIN=local`). Every gateway and broker was
+started fresh for the one run it served.
+
+```sh
+mockryx run --gateway http://127.0.0.1:14130 --watch-events gw-events.ndjson scenarios
+mockryx run --gateway http://127.0.0.1:14130 --mcp-broker http://127.0.0.1:14230 --watch-events gw-events.ndjson scenarios/mcp
+```
+
+**The four new or changed drills, in each configuration.** Exit codes are `scenarios/` then `scenarios/mcp/`.
+
+| Firewall / broker DLP / broker PII | `egress-after-untrusted-read` | `injected-page` | `mcp-secret-in-arguments` | `mcp-pii-in-arguments` | exits |
+| --- | --- | --- | --- | --- | --- |
+| enforce / block / block | passed | passed | passed | passed | `0`, `0` |
+| enforce / block / off | passed | passed | passed | skipped_not_configured | `0`, `0` |
+| enforce / off / block | passed | passed | skipped_not_configured | passed | `0`, `0` |
+| enforce / warn / off | passed | passed | skipped_not_configured | skipped_not_configured | `0`, `0` |
+| **shadow** / off / off | **failed** | **failed** | skipped_not_configured | skipped_not_configured | **`1`**, `0` |
+| off / off / off | skipped_not_configured | skipped_not_configured | skipped_not_configured | skipped_not_configured | `0`, `0` |
+| off / off / off, with `--fail-on-skip` | skipped_not_configured | skipped_not_configured | skipped_not_configured | skipped_not_configured | `1`, `1` |
+
+In shadow the firewall judged both drills and let them through, and mockryx said what it would have refused:
+`expected decision "deny", got decision "allow" (governed: true), would block: tainted context [web] denies
+capability [network_egress]`. That is the designed reading: a firewall that only observes does not hold the
+line, and it is the one operator-visible change here for a pipeline that runs the firewall in shadow (its
+`injected-page` used to be a skip and is now a `Finding`). Off is a skip in both, because check-tool-call
+answered `governed: false`. The broker's `warn` mode, like its `off`, reads as not configured: it logs and
+forwards, and the broker stamps nothing on a reply, so the two are indistinguishable on the wire (README says
+so). `--fail-on-skip` is how an operator insists, and it does here.
+
+**What the gateway recorded, read from its event log.** `egress-after-untrusted-read`: one `taint_raised`
+carrying `["web"]` with no signals (stage `request_history`), then one `taint_block` (stage `tool_call_check`,
+rule `no-exec-after-untrusted`, tool `http_post`, labels `["web"]`, denied `["network_egress"]`). Its tool
+result is ordinary prose, so the label alone said deny. `injected-page`: `taint_raised` carrying
+`["suspected_injection","web"]` with the signal `instruction_override` (stage `tool_result`), then the
+`taint_block`, which mockryx's `expect.event` found. The two labels are why the drill's header says either is
+enough. The control step of the first drill, `http_post` asked about before any history, was allowed with
+`governed: true`, so the denial is the label's and not a blanket one.
+
+**The broker blocks before the upstream is touched.** In the enforce / block / block run the stub MCP
+upstream's body log was empty: neither `tools/call` reached it. The broker logged `raw secret in tool args:
+1 secret(s): aws_access_key` and `pii in tool args: 2 pii finding(s): pii_email, pii_phone`.
+
+**Additive, proven three ways.** (1) The ten scenarios that existed, run with the new binary against the same
+gateway in all three firewall modes: nine give byte-for-byte the same verdict, call count and finding count as
+the binary built from `df1b126`; the tenth, `injected-page`, is the one changed on purpose (skipped, now passed
+in enforce, failed in shadow, skipped in off). The old `injected-page.yaml`, run with the new binary against the
+enforcing gateway, still reports `skipped_not_configured` exactly as before. (2) The same ten files run by both
+binaries against a recording stub, with every request's path, `x-*` headers and body diffed: 20 requests, no
+difference. (3) The same ten against `scripts/selftest.sh`'s silent and signalling stubs, taken from `df1b126`:
+statuses, call counts, findings and their text identical.
+
+**A defect in this repository's own gate, found while proving the above.** `scripts/selftest.sh` printed `FAIL`
+for a drill that cannot fail and exited `0`: it has no `set -e`, so its exit status was the last check's, and the
+watch-events check at the end passes whatever the first one said. Found by planting such a drill. Every check now
+records its failure and the script exits with it, and `gates-have-teeth.sh` plants one drill per step kind and
+requires the failure.
+
+**A defect in this change, found by firing at a broker with a door key.** With `TOKENFUSE_MCP_KEYS` set and no
+key sent, the broker answers HTTP `401` with `{"error":{"type":"unauthorized",...}}`: an `error` object with no
+`code`. The first version of the reply parser read that as a JSON-RPC error with code `0`, and both broker drills
+reported `skipped_not_configured` for a broker that had refused to talk to them. A JSON-RPC error now needs an
+integer `code`, anything else is an unreadable reply, and an unreadable reply is a hard `Finding`
+(`TestMCPAnUnreadableReplyIsAHardFindingNotASkip` has the real body). Re-run: both drills `failed`, "the MCP
+broker answered HTTP 401 with something that is not a JSON-RPC reply".
+
+**Red first.** The new tests were run before any code that satisfies them: the compile errors and then, once the
+types existed, the assertion failures, for the scenario format (21 failing), the runner (21), the report, events
+and config (4), and the command (7). A further 20 mutants of the new code, each aimed at one of the properties
+above (the plain-string wire form, a `tool_use` losing its `input`, an unknown block type accepted, `tool_check`
+or `mcp` without their `requires`, the broker no longer target-shaped, any error counted as the broker speaking,
+`error_contains` ignored, `governed` always or never the signal, an unreadable answer treated as a skip, the
+check asking about a different run than the history, the gateway key sent to the broker, a refused connection
+treated as reachable, the broker not probed, a missing broker not refused, the report printing a status for a
+`tool_check`, the new event keys always written, `MOCKRYX_MCP_BROKER` not read, a foreign `expect` field
+accepted), were each caught by the test named for it: 20 of 20.
+
+**Not proven here.** No Wardryx: the history step of both firewall drills carries `fetch_url` / `web_search` in
+`tools[]`, and a Wardryx policy that denies one of them would turn that step into a `403`. A broker with its
+door key set is a hard `Finding` today, since there is no flag to send the key. The broker was reached over
+plain JSON, not a server-sent-event reply. The upstream was a stub, so what a real MCP server does with a call
+the broker lets through is untested. Only v1.10.0 was run; TokenFuse releases after it were not.
 
 ## Method (the Hetzner campaigns above)
 
