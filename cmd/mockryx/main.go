@@ -122,6 +122,7 @@ func runRun(args []string) error {
 	var (
 		gatewayFlag = fs.String("gateway", "", "gateway base URL to rehearse against (default: $MOCKRYX_GATEWAY)")
 		apiKeyFlag  = fs.String("api-key", "", "x-api-key sent with every crafted request (default: $MOCKRYX_API_KEY)")
+		brokerFlag  = fs.String("mcp-broker", "", "MCP broker base URL that mcp steps are sent to (default: $MOCKRYX_MCP_BROKER); required only if a loaded scenario has an mcp step")
 		eventsFlag  = fs.String("events", "", "path to append sim_run/sim_finding/blast_radius_measured events to (default: $MOCKRYX_EVENTS_PATH)")
 		watchFlag   watchPathsFlag
 		format      = fs.String("format", "human", "report format: human|json")
@@ -149,6 +150,7 @@ func runRun(args []string) error {
 		return fmt.Errorf("no gateway configured: set --gateway or $MOCKRYX_GATEWAY")
 	}
 	apiKey := firstNonEmpty(*apiKeyFlag, env.APIKey)
+	mcpBroker := firstNonEmpty(*brokerFlag, env.MCPBroker)
 	eventsPath := firstNonEmpty(*eventsFlag, env.EventsPath)
 	watchPaths := []string(watchFlag)
 	if len(watchPaths) == 0 {
@@ -175,6 +177,22 @@ func runRun(args []string) error {
 		watcher = &watch.FileWatcher{Paths: watchPaths}
 	}
 
+	// The same fail-fast, for the same reason, for an mcp step: it needs the
+	// MCP broker the operator names with --mcp-broker, and a run with the
+	// broker missing or not there would otherwise be a run of transport
+	// Findings that rehearsed nothing and exited 1, which a CI gate would
+	// read as a guardrail gap. It is a usage error, exit 2, before a single
+	// request goes to the gateway either. A run with no mcp step never looks
+	// at the broker setting at all.
+	if s, step, ok := firstMCPStep(scenarios); ok {
+		if mcpBroker == "" {
+			return fmt.Errorf("scenario %q step %q is an mcp step, but no --mcp-broker or $MOCKRYX_MCP_BROKER was provided", s, step)
+		}
+		if err := runner.ProbeBroker(mcpBroker); err != nil {
+			return fmt.Errorf("the MCP broker %s is unreachable, so scenario %q step %q cannot be rehearsed: %w", mcpBroker, s, step, err)
+		}
+	}
+
 	emitter, err := events.Open(eventsPath)
 	if err != nil {
 		return err
@@ -192,8 +210,11 @@ func runRun(args []string) error {
 	_ = emitter.SimRun(runID, "start", len(scenarios), 0, gateway)
 
 	rep := report.Report{RunID: runID, Gateway: gateway, Generated: time.Now().UTC()}
+	if _, _, ok := firstMCPStep(scenarios); ok {
+		rep.MCPBroker = mcpBroker
+	}
 	for _, s := range scenarios {
-		res := runner.Run(s, gateway, apiKey, watcher)
+		res := runner.RunWithBroker(s, gateway, mcpBroker, apiKey, watcher)
 		rep.Results = append(rep.Results, res)
 		for _, f := range res.Findings {
 			_ = emitter.SimFinding(events.SimFindingInput{
@@ -208,6 +229,9 @@ func runRun(args []string) error {
 				Detail:            f.Detail,
 				ExpectEventSource: f.ExpectEventSource,
 				ExpectEventType:   f.ExpectEventType,
+				Kind:              f.Kind,
+				Expect:            f.Expect,
+				Got:               f.Got,
 			})
 		}
 		_ = emitter.BlastRadiusMeasured(runID, s.Name, res.Metrics.Calls, res.Metrics.BudgetBurnedUSD)
@@ -353,6 +377,19 @@ func firstEventExpectation(scenarios []scenario.Scenario) (scenarioName, stepNam
 	for _, s := range scenarios {
 		for _, step := range s.Steps {
 			if step.Expect.Event != nil {
+				return s.Name, step.Name, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// firstMCPStep returns the first scenario/step that is an mcp step, so
+// runRun's upfront --mcp-broker validation can name a concrete offender.
+func firstMCPStep(scenarios []scenario.Scenario) (scenarioName, stepName string, ok bool) {
+	for _, s := range scenarios {
+		for _, step := range s.Steps {
+			if step.Kind() == scenario.KindMCP {
 				return s.Name, step.Name, true
 			}
 		}

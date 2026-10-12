@@ -142,3 +142,80 @@ func TestLoadInvalidJSON(t *testing.T) {
 		t.Fatal("expected an error for a malformed report file")
 	}
 }
+
+// A tool_check or mcp Finding has no status to print; it says what was asked
+// for and what came back. Added with those step kinds (2026-10-12).
+func TestHumanDescribesAToolCheckAndAnMCPFindingInWords(t *testing.T) {
+	r := Report{Gateway: "http://gw.local", MCPBroker: "http://broker.local:4200", Results: []runner.Result{{
+		Scenario: "egress-after-untrusted-read",
+		Status:   runner.StatusFailed,
+		Findings: []runner.Finding{
+			{Scenario: "egress-after-untrusted-read", Step: "egress-is-refused", Attempt: 1, Kind: "tool_check",
+				Expect: `decision "deny"`, Got: `decision "allow" (governed: true)`, Detail: "expected decision"},
+			{Scenario: "mcp-secret-in-arguments", Step: "raw-secret", Attempt: 1, Kind: "mcp",
+				Expect: "JSON-RPC error code -32002", Got: "a JSON-RPC result", Detail: "expected JSON-RPC"},
+		},
+	}}}
+	var buf bytes.Buffer
+	Human(&buf, r)
+	out := buf.String()
+	for _, want := range []string{
+		`expected decision "deny", got decision "allow" (governed: true)`,
+		`expected JSON-RPC error code -32002, got a JSON-RPC result`,
+		"http://broker.local:4200",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Human output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "expected status 0") {
+		t.Errorf("a finding with no status must not print \"expected status 0\":\n%s", out)
+	}
+}
+
+func TestHumanKeepsTheOriginalWordingForAStatusFinding(t *testing.T) {
+	var buf bytes.Buffer
+	Human(&buf, sampleReport())
+	if !strings.Contains(buf.String(), "attempt 1: expected status 403, got 200. never denied") {
+		t.Errorf("the messages-step finding line changed:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "mcp broker") {
+		t.Errorf("a run with no broker must not mention one:\n%s", buf.String())
+	}
+}
+
+func TestSkippedToolCheckFindingsAreDescribedInWordsToo(t *testing.T) {
+	r := Report{Results: []runner.Result{{
+		Scenario: "egress-after-untrusted-read", Status: runner.StatusSkipped,
+		SkippedFindings: []runner.Finding{{Scenario: "egress-after-untrusted-read", Step: "s", Attempt: 1,
+			Kind: "tool_check", Expect: `decision "deny"`, Got: `decision "allow" (governed: false)`, Detail: "d"}},
+	}}}
+	var buf bytes.Buffer
+	Human(&buf, r)
+	if !strings.Contains(buf.String(), `expected decision "deny", got decision "allow" (governed: false)`) {
+		t.Errorf("skipped section does not describe the finding in words:\n%s", buf.String())
+	}
+}
+
+func TestJSONCarriesKindExpectAndGotOnlyWhenSet(t *testing.T) {
+	var buf bytes.Buffer
+	if err := JSON(&buf, sampleReport()); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{`"kind"`, `"expect"`, `"got"`, `"mcp_broker"`} {
+		if strings.Contains(buf.String(), key) {
+			t.Errorf("a report with only messages findings must not gain %s:\n%s", key, buf.String())
+		}
+	}
+	buf.Reset()
+	r := Report{MCPBroker: "http://b", Results: []runner.Result{{Scenario: "x", Status: runner.StatusFailed,
+		Findings: []runner.Finding{{Scenario: "x", Step: "s", Kind: "mcp", Expect: "e", Got: "g"}}}}}
+	if err := JSON(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{`"kind": "mcp"`, `"expect": "e"`, `"got": "g"`, `"mcp_broker": "http://b"`} {
+		if !strings.Contains(buf.String(), key) {
+			t.Errorf("JSON missing %s:\n%s", key, buf.String())
+		}
+	}
+}

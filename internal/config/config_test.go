@@ -7,8 +7,12 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("MOCKRYX_EVENTS_PATH", "/tmp/events.ndjson")
 	t.Setenv("MOCKRYX_API_KEY", "secret-key")
 	t.Setenv("MOCKRYX_WATCH_EVENTS", "/tmp/verdryx.ndjson, /tmp/idryx.ndjson")
+	t.Setenv("MOCKRYX_MCP_BROKER", "http://broker.local:4200")
 
 	c := FromEnv()
+	if c.MCPBroker != "http://broker.local:4200" {
+		t.Errorf("MCPBroker = %q", c.MCPBroker)
+	}
 	if c.Gateway != "http://gw.local" {
 		t.Errorf("Gateway = %q", c.Gateway)
 	}
@@ -29,9 +33,10 @@ func TestFromEnvEmpty(t *testing.T) {
 	t.Setenv("MOCKRYX_EVENTS_PATH", "")
 	t.Setenv("MOCKRYX_API_KEY", "")
 	t.Setenv("MOCKRYX_WATCH_EVENTS", "")
+	t.Setenv("MOCKRYX_MCP_BROKER", "")
 
 	c := FromEnv()
-	if c.Gateway != "" || c.EventsPath != "" || c.APIKey != "" || c.WatchEvents != nil {
+	if c.Gateway != "" || c.EventsPath != "" || c.APIKey != "" || c.WatchEvents != nil || c.MCPBroker != "" {
 		t.Errorf("expected an empty Config, got %+v", c)
 	}
 }

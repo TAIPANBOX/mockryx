@@ -522,3 +522,220 @@ func TestRunCommandFailOnSkipMakesSkipAFailure(t *testing.T) {
 		t.Errorf("report should surface the promoted skip as a gap:\n%s", out)
 	}
 }
+
+// --- the MCP broker (added 2026-10-12 with the mcp step kind) -----------------
+
+const mcpScenarioYAML = `
+name: test-mcp-secret
+requires: mcp-dlp
+steps:
+  - name: raw-secret-in-arguments
+    mcp:
+      method: tools/call
+      params:
+        name: search_notes
+        arguments: {query: "AKIAIOSFODNN7EXAMPLE"}
+    expect:
+      error_code: -32002
+      error_contains: blocked
+`
+
+// brokerReplying is a broker stand-in: /healthz answers ok, every other POST
+// is one JSON-RPC request answered with reply.
+func brokerReplying(t *testing.T, reply func(id any) string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		var req struct {
+			ID any `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(reply(req.ID)))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func blockedWith(code int) func(id any) string {
+	return func(id any) string {
+		b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": "blocked: raw secret in tool arguments (aws_access_key)"}})
+		return string(b)
+	}
+}
+
+// countingGateway counts every request that reaches it.
+func countingGateway(t *testing.T) (*httptest.Server, func() int) {
+	t.Helper()
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func() int { return n }
+}
+
+// deadURL is an address that was listening a moment ago and is not now.
+func deadURL(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.NotFoundHandler())
+	u := srv.URL
+	srv.Close()
+	return u
+}
+
+func TestRunCommandMCPStepWithNoBrokerIsAUsageError(t *testing.T) {
+	t.Setenv("MOCKRYX_MCP_BROKER", "")
+	gw, requests := countingGateway(t)
+	dir := t.TempDir()
+	writeScenario(t, dir, "mcp.yaml", mcpScenarioYAML)
+
+	err := runRun([]string{"--gateway", gw.URL, dir})
+	if err == nil {
+		t.Fatal("expected a refusal: an mcp step is loaded and no broker was named")
+	}
+	if got := exitCode(err); got != exitUsage {
+		t.Errorf("exitCode = %d, want %d (usage)", got, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "--mcp-broker") || !strings.Contains(err.Error(), "test-mcp-secret") {
+		t.Errorf("error = %q, want it to name the setting and the scenario", err)
+	}
+	if requests() != 0 {
+		t.Errorf("the gateway received %d requests before the refusal, want 0", requests())
+	}
+}
+
+func TestRunCommandMCPStepWithAnUnreachableBrokerIsAUsageError(t *testing.T) {
+	t.Setenv("MOCKRYX_MCP_BROKER", "")
+	gw, requests := countingGateway(t)
+	dir := t.TempDir()
+	writeScenario(t, dir, "mcp.yaml", mcpScenarioYAML)
+
+	err := runRun([]string{"--gateway", gw.URL, "--mcp-broker", deadURL(t), dir})
+	if err == nil {
+		t.Fatal("expected a refusal: the broker named is not there")
+	}
+	if got := exitCode(err); got != exitUsage {
+		t.Errorf("exitCode = %d, want %d (usage), not %d: nothing was rehearsed", got, exitUsage, exitFindings)
+	}
+	if !strings.Contains(err.Error(), "unreachable") {
+		t.Errorf("error = %q, want it to say the broker is unreachable", err)
+	}
+	if requests() != 0 {
+		t.Errorf("the gateway received %d requests before the refusal, want 0", requests())
+	}
+}
+
+func TestRunCommandMCPStepRunsAgainstTheNamedBroker(t *testing.T) {
+	t.Setenv("MOCKRYX_MCP_BROKER", "")
+	gw, _ := countingGateway(t)
+	broker := brokerReplying(t, blockedWith(-32002))
+	dir := t.TempDir()
+	writeScenario(t, dir, "mcp.yaml", mcpScenarioYAML)
+
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = runRun([]string{"--gateway", gw.URL, "--mcp-broker", broker.URL, dir})
+	})
+	if runErr != nil {
+		t.Fatalf("runRun: %v\n%s", runErr, out)
+	}
+	if !strings.Contains(out, "passed") || !strings.Contains(out, "test-mcp-secret") || !strings.Contains(out, broker.URL) {
+		t.Errorf("report should show the passed scenario and name the broker:\n%s", out)
+	}
+}
+
+func TestRunCommandMCPGapIsAFindingsError(t *testing.T) {
+	t.Setenv("MOCKRYX_MCP_BROKER", "")
+	gw, _ := countingGateway(t)
+	broker := brokerReplying(t, blockedWith(-32004)) // a guardrail spoke, but not the secret scan
+	dir := t.TempDir()
+	writeScenario(t, dir, "mcp.yaml", mcpScenarioYAML)
+	eventsPath := filepath.Join(dir, "events.ndjson")
+
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = runRun([]string{"--gateway", gw.URL, "--mcp-broker", broker.URL, "--events", eventsPath, dir})
+	})
+	if got := exitCode(runErr); got != exitFindings {
+		t.Fatalf("exitCode = %d, want %d: %v\n%s", got, exitFindings, runErr, out)
+	}
+	if !strings.Contains(out, "expected JSON-RPC error code -32002") || !strings.Contains(out, "got JSON-RPC error -32004") {
+		t.Errorf("report does not say what was expected and what came back:\n%s", out)
+	}
+	data, err := os.ReadFile(eventsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"kind":"mcp"`) {
+		t.Errorf("the sim_finding event does not carry the step kind:\n%s", data)
+	}
+}
+
+func TestRunCommandMCPBrokerFromTheEnvironmentAndTheFlagWins(t *testing.T) {
+	gw, _ := countingGateway(t)
+	good := brokerReplying(t, blockedWith(-32002))
+	dir := t.TempDir()
+	writeScenario(t, dir, "mcp.yaml", mcpScenarioYAML)
+
+	// The environment alone is enough.
+	t.Setenv("MOCKRYX_MCP_BROKER", good.URL)
+	var runErr error
+	captureStdout(t, func() { runErr = runRun([]string{"--gateway", gw.URL, dir}) })
+	if runErr != nil {
+		t.Errorf("$MOCKRYX_MCP_BROKER alone: %v", runErr)
+	}
+
+	// And a flag wins over a broken environment.
+	t.Setenv("MOCKRYX_MCP_BROKER", deadURL(t))
+	captureStdout(t, func() { runErr = runRun([]string{"--gateway", gw.URL, "--mcp-broker", good.URL, dir}) })
+	if runErr != nil {
+		t.Errorf("--mcp-broker over a dead $MOCKRYX_MCP_BROKER: %v", runErr)
+	}
+}
+
+func TestRunCommandMCPSkipsWhenTheBrokerNeverSpokeAndFailOnSkipPromotesIt(t *testing.T) {
+	t.Setenv("MOCKRYX_MCP_BROKER", "")
+	gw, _ := countingGateway(t)
+	broker := brokerReplying(t, func(id any) string {
+		b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"content": []any{}}})
+		return string(b)
+	})
+	dir := t.TempDir()
+	writeScenario(t, dir, "mcp.yaml", mcpScenarioYAML)
+
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = runRun([]string{"--gateway", gw.URL, "--mcp-broker", broker.URL, dir})
+	})
+	if runErr != nil || !strings.Contains(out, "skipped_not_configured") {
+		t.Fatalf("a broker that never spoke must read as not configured, exit 0: err=%v\n%s", runErr, out)
+	}
+
+	captureStdout(t, func() {
+		runErr = runRun([]string{"--gateway", gw.URL, "--mcp-broker", broker.URL, "--fail-on-skip", dir})
+	})
+	if got := exitCode(runErr); got != exitFindings {
+		t.Errorf("--fail-on-skip: exitCode = %d, want %d", got, exitFindings)
+	}
+}
+
+// Additive: a run that loads no mcp step never looks at the broker setting,
+// so a pipeline that carries a stale or wrong one is not broken by it.
+func TestRunCommandBrokerSettingIsIgnoredWithoutAnMCPStep(t *testing.T) {
+	srv := breakerStub(t, http.StatusPaymentRequired)
+	dir := t.TempDir()
+	writeScenario(t, dir, "breaker.yaml", breakerScenario)
+
+	var runErr error
+	captureStdout(t, func() {
+		runErr = runRun([]string{"--gateway", srv.URL, "--mcp-broker", deadURL(t), dir})
+	})
+	if runErr != nil {
+		t.Errorf("an unreachable broker refused a run with no mcp step: %v", runErr)
+	}
+}

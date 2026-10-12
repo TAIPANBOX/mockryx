@@ -131,6 +131,10 @@ type SimFindingInput struct {
 	// synchronous status/header mismatch.
 	ExpectEventSource string
 	ExpectEventType   string
+	// Kind, Expect and Got mirror runner.Finding's fields of the same name:
+	// set only for a tool_check or an mcp step, which have no status to
+	// expect. A messages step's event keeps exactly the keys it always had.
+	Kind, Expect, Got string
 }
 
 // SimFinding emits a sim_finding (high) event for one defensive gap: the
@@ -149,6 +153,11 @@ func (e *Emitter) SimFinding(in SimFindingInput) error {
 	if in.ExpectEventSource != "" {
 		data["expect_event_source"] = in.ExpectEventSource
 		data["expect_event_type"] = in.ExpectEventType
+	}
+	if in.Kind != "" {
+		data["kind"] = in.Kind
+		data["expect"] = in.Expect
+		data["got"] = in.Got
 	}
 	return e.write(event.Event{
 		Type:     "sim_finding",

@@ -40,6 +40,22 @@ var (
 	ErrEventMissingType    = errors.New("scenario: step expect.event missing required field: type")
 	ErrUnsupportedExt      = errors.New("scenario: unsupported file extension (want .yaml, .yml, or .json)")
 	ErrNoScenarios         = errors.New("scenario: no .yaml, .yml, or .json scenario files found")
+
+	// Added with tool history and the tool_check and mcp step kinds
+	// (2026-10-12).
+	ErrStepKind             = errors.New("scenario: a step must set exactly one of request, tool_check, mcp")
+	ErrUnknownBlockType     = errors.New("scenario: message content block has an unknown type (want text, tool_use or tool_result)")
+	ErrBlockToolUse         = errors.New("scenario: a tool_use content block needs an id and a name")
+	ErrBlockToolResult      = errors.New("scenario: a tool_result content block needs a tool_use_id")
+	ErrToolCheckMissingTool = errors.New("scenario: step tool_check missing required field: tool")
+	ErrToolCheckDecision    = errors.New("scenario: a tool_check step's expect.decision must be allow or deny")
+	ErrToolCheckNeedsTaint  = errors.New("scenario: a scenario with a tool_check step must declare requires: taint")
+	ErrMCPMissingMethod     = errors.New("scenario: step mcp missing required field: method")
+	ErrMCPNeedsRequires     = errors.New("scenario: a scenario with an mcp step must declare requires")
+	ErrMCPExpect            = errors.New("scenario: an mcp step's expect needs exactly one of error_code or result")
+	ErrMCPEvent             = errors.New("scenario: an mcp step cannot declare expect.event")
+	ErrExpectKind           = errors.New("scenario: step expect carries a field that belongs to another kind of step")
+	ErrHeadersUnused        = errors.New("scenario: a tool_check or mcp step sends only headers.run_id and headers.agent_id")
 )
 
 // DefaultEventWithin is how long a step waits for its declared Expect.Event
@@ -60,11 +76,16 @@ type Scenario struct {
 	// core, always-on guardrail (e.g. the budget Breaker), where a
 	// mismatch is always a genuine Finding.
 	//
-	// When set, the runner also watches every response for the
-	// "x-fuse-<requires>" header family (lowercased). If that header never
-	// once appears across every attempt, the gateway plainly does not have
-	// the feature wired in, and the runner reports "guardrail not
-	// configured" instead of a false failure.
+	// When set, the runner also watches for the guardrail showing itself, and
+	// if it never once does across every attempt, the gateway plainly does
+	// not have the feature wired in, and the runner reports "guardrail not
+	// configured" instead of a false failure. What counts as showing itself
+	// depends on the step's kind: a messages step watches every response for
+	// the "x-fuse-<requires>" header family (lowercased); a tool_check step
+	// watches for the firewall answering governed: true, which is why a
+	// scenario with one must say requires: taint; an mcp step watches for a
+	// JSON-RPC error in the range the broker reserves for its guardrails
+	// (-32001 to -32010), and a scenario with one must say some requires.
 	Requires string `yaml:"requires,omitempty" json:"requires,omitempty"`
 	// Steps are the crafted requests that make up this scenario, run in
 	// order.
@@ -81,8 +102,15 @@ type Step struct {
 	// early the moment Expect matches. Defaults to 1; Load/Parse normalize
 	// a zero or negative value to 1.
 	Repeat int `yaml:"repeat,omitempty" json:"repeat,omitempty"`
-	// Request is the crafted call sent to POST {gateway}/v1/messages.
-	Request Request `yaml:"request" json:"request"`
+	// Request is the crafted call sent to POST {gateway}/v1/messages. Exactly
+	// one of Request, ToolCheck and MCP is set; see Step.Kind.
+	Request Request `yaml:"request,omitempty" json:"request"`
+	// ToolCheck asks the gateway's POST /v1/fuse/check-tool-call whether a
+	// tool may run in this scenario's run, and asserts the decision.
+	ToolCheck *ToolCheck `yaml:"tool_check,omitempty" json:"tool_check,omitempty"`
+	// MCP sends one JSON-RPC request to the MCP broker the operator named
+	// with --mcp-broker, and asserts a result or a JSON-RPC error.
+	MCP *MCPCall `yaml:"mcp,omitempty" json:"mcp,omitempty"`
 	// Headers are the x-fuse-* headers sent with the request.
 	Headers Headers `yaml:"headers,omitempty" json:"headers,omitempty"`
 	// Expect is the guardrail response this step should get back.
@@ -104,10 +132,104 @@ type Request struct {
 }
 
 // Message is one entry in Request.Messages, mirroring the Anthropic
-// Messages API's {role, content} shape.
+// Messages API's {role, content} shape. On that wire a message's content is
+// either a plain string or a list of typed blocks, and a scenario may write
+// either under `content:`.
+//
+// Exactly one of Content and Blocks is set after a parse. Content stays a
+// plain string, and a plain-string message marshals onto the wire exactly as
+// it always did, so no scenario written before blocks existed changes by a
+// byte.
 type Message struct {
 	Role    string `yaml:"role" json:"role"`
 	Content string `yaml:"content" json:"content"`
+	// Blocks is the list form of content: the text, tool_use and tool_result
+	// blocks of a conversation an agent loop has already had. This is how a
+	// drill supplies tool HISTORY, which is what the gateway's agent firewall
+	// reads taint from (a tool the model invoked, not one a request declares).
+	Blocks []Block `yaml:"-" json:"-"`
+}
+
+// Block is one structured content block of a Message, in the Anthropic wire
+// shape. Type picks which of the other fields apply:
+//
+//	text         Text
+//	tool_use     ID, Name, Input     (a tool the assistant invoked)
+//	tool_result  ToolUseID, Content, IsError   (what that tool returned)
+//
+// Content on a tool_result is the plain-string form only; the list form of a
+// tool result's content is not expressible here.
+type Block struct {
+	Type      string         `yaml:"type" json:"type"`
+	Text      string         `yaml:"text,omitempty" json:"text,omitempty"`
+	ID        string         `yaml:"id,omitempty" json:"id,omitempty"`
+	Name      string         `yaml:"name,omitempty" json:"name,omitempty"`
+	Input     map[string]any `yaml:"input,omitempty" json:"input,omitempty"`
+	ToolUseID string         `yaml:"tool_use_id,omitempty" json:"tool_use_id,omitempty"`
+	Content   string         `yaml:"content,omitempty" json:"content,omitempty"`
+	IsError   bool           `yaml:"is_error,omitempty" json:"is_error,omitempty"`
+}
+
+// ToolCheck is a tool_check step: it asks the gateway's own
+// POST /v1/fuse/check-tool-call whether Tool may run in this scenario's run,
+// which is the question an executor asks BEFORE running a tool the model
+// requested. The run is the scenario's run_id, so an earlier step that put
+// tool history into the run decides the answer.
+type ToolCheck struct {
+	Tool string `yaml:"tool" json:"tool"`
+}
+
+// MCPCall is an mcp step: one JSON-RPC 2.0 request to the MCP broker the
+// operator named with --mcp-broker or $MOCKRYX_MCP_BROKER. The broker's
+// address is deliberately not a field here: it comes from the command line and
+// from nowhere else, the same property CLAUDE.md invariant 6 holds for the
+// gateway.
+type MCPCall struct {
+	// Method is the JSON-RPC method, e.g. tools/call.
+	Method string `yaml:"method" json:"method"`
+	// Params is the JSON-RPC params object, sent as written.
+	Params map[string]any `yaml:"params,omitempty" json:"params,omitempty"`
+}
+
+// StepKind names which of the three kinds a Step is.
+type StepKind string
+
+const (
+	// KindMessages is the original step: a request POSTed to /v1/messages.
+	KindMessages StepKind = "messages"
+	// KindToolCheck is a POST to /v1/fuse/check-tool-call.
+	KindToolCheck StepKind = "tool_check"
+	// KindMCP is one JSON-RPC request to the MCP broker.
+	KindMCP StepKind = "mcp"
+)
+
+// Kind reports which kind the step is, or "" when it sets none or more than
+// one of request, tool_check and mcp (which validate refuses).
+func (s Step) Kind() StepKind {
+	n := 0
+	var k StepKind
+	if s.Request.isSet() {
+		n++
+		k = KindMessages
+	}
+	if s.ToolCheck != nil {
+		n++
+		k = KindToolCheck
+	}
+	if s.MCP != nil {
+		n++
+		k = KindMCP
+	}
+	if n != 1 {
+		return ""
+	}
+	return k
+}
+
+// isSet reports whether the request carries anything at all, which is how a
+// step that omitted `request:` is told apart from one that wrote it.
+func (r Request) isSet() bool {
+	return r.Model != "" || r.MaxTokens != 0 || len(r.Messages) > 0 || len(r.Tools) > 0
 }
 
 // Tool is one entry in Request.Tools.
@@ -150,7 +272,29 @@ type Expect struct {
 	// the synchronous status/header assertion above has already matched.
 	// See EventExpect and internal/watch.
 	Event *EventExpect `yaml:"event,omitempty" json:"event,omitempty"`
+
+	// Decision is a tool_check step's required assertion: DecisionAllow or
+	// DecisionDeny, the "decision" the gateway's check-tool-call answered.
+	Decision string `yaml:"decision,omitempty" json:"decision,omitempty"`
+	// ErrorCode is an mcp step's assertion that the broker answered with a
+	// JSON-RPC error carrying exactly this code (e.g. -32002, the broker's
+	// raw-secret block). A pointer so that "not set" is not mistaken for 0.
+	ErrorCode *int `yaml:"error_code,omitempty" json:"error_code,omitempty"`
+	// ErrorContains optionally requires that error's message to contain this
+	// text. It exists because an upstream MCP server may use the same number
+	// for its own error (the MCP spec itself gives -32002 a meaning), so a
+	// code alone could pass on an error the broker never raised.
+	ErrorContains string `yaml:"error_contains,omitempty" json:"error_contains,omitempty"`
+	// Result is the mcp step's other assertion: the broker answered with a
+	// JSON-RPC result and no error. Exactly one of ErrorCode and Result.
+	Result bool `yaml:"result,omitempty" json:"result,omitempty"`
 }
+
+// The two decisions a tool_check step can assert.
+const (
+	DecisionAllow = "allow"
+	DecisionDeny  = "deny"
+)
 
 // EventExpect asserts that a downstream, off-path service's own
 // agent-event log (agent-passport SPEC.md Sec 6) recorded a matching
@@ -284,14 +428,19 @@ func validate(s *Scenario) error {
 		if step.Repeat <= 0 {
 			step.Repeat = 1
 		}
-		if step.Request.Model == "" {
-			return fmt.Errorf("%s: step %s: %w", s.Name, step.Name, ErrStepMissingModel)
+		var err error
+		switch step.Kind() {
+		case KindMessages:
+			err = validateMessagesStep(step)
+		case KindToolCheck:
+			err = validateToolCheckStep(s, step)
+		case KindMCP:
+			err = validateMCPStep(s, step)
+		default:
+			err = ErrStepKind
 		}
-		if len(step.Request.Messages) == 0 {
-			return fmt.Errorf("%s: step %s: %w", s.Name, step.Name, ErrStepMissingMessages)
-		}
-		if step.Expect.Status == 0 {
-			return fmt.Errorf("%s: step %s: %w", s.Name, step.Name, ErrStepMissingStatus)
+		if err != nil {
+			return fmt.Errorf("%s: step %s: %w", s.Name, step.Name, err)
 		}
 		if step.Expect.WithinRepeats <= 0 || step.Expect.WithinRepeats > step.Repeat {
 			step.Expect.WithinRepeats = step.Repeat
@@ -307,6 +456,110 @@ func validate(s *Scenario) error {
 				step.Expect.Event.Within = DefaultEventWithin
 			}
 		}
+	}
+	return nil
+}
+
+// validateMessagesStep is the original step's validation, unchanged, plus the
+// content-block rules and the refusal of expect fields that belong to the
+// other two kinds.
+func validateMessagesStep(step *Step) error {
+	if step.Request.Model == "" {
+		return ErrStepMissingModel
+	}
+	if len(step.Request.Messages) == 0 {
+		return ErrStepMissingMessages
+	}
+	for _, m := range step.Request.Messages {
+		for _, b := range m.Blocks {
+			switch b.Type {
+			case "text":
+			case "tool_use":
+				if b.ID == "" || b.Name == "" {
+					return ErrBlockToolUse
+				}
+			case "tool_result":
+				if b.ToolUseID == "" {
+					return ErrBlockToolResult
+				}
+			default:
+				return fmt.Errorf("%w: %q", ErrUnknownBlockType, b.Type)
+			}
+		}
+	}
+	if step.Expect.Status == 0 {
+		return ErrStepMissingStatus
+	}
+	if step.Expect.Decision != "" || step.Expect.ErrorCode != nil ||
+		step.Expect.ErrorContains != "" || step.Expect.Result {
+		return fmt.Errorf("%w: decision, error_code, error_contains and result are for tool_check and mcp steps", ErrExpectKind)
+	}
+	return nil
+}
+
+func validateToolCheckStep(s *Scenario, step *Step) error {
+	if step.ToolCheck.Tool == "" {
+		return ErrToolCheckMissingTool
+	}
+	// An off firewall answers governed: false. That is the only thing that
+	// lets this step read as "not configured" instead of as a gap, and it is
+	// read through requires, so a scenario without it would report a plain
+	// gateway as defective.
+	if s.Requires != "taint" {
+		return ErrToolCheckNeedsTaint
+	}
+	if step.Expect.Decision != DecisionAllow && step.Expect.Decision != DecisionDeny {
+		return fmt.Errorf("%w: got %q", ErrToolCheckDecision, step.Expect.Decision)
+	}
+	if err := foreignExpect(step, "status and header are for messages steps"); err != nil {
+		return err
+	}
+	if step.Expect.ErrorCode != nil || step.Expect.ErrorContains != "" || step.Expect.Result {
+		return fmt.Errorf("%w: error_code, error_contains and result are for mcp steps", ErrExpectKind)
+	}
+	return unusedHeaders(step)
+}
+
+func validateMCPStep(s *Scenario, step *Step) error {
+	if step.MCP.Method == "" {
+		return ErrMCPMissingMethod
+	}
+	// Every broker guardrail is opt-in, so a scenario that names none could
+	// never be read as "not configured".
+	if s.Requires == "" {
+		return ErrMCPNeedsRequires
+	}
+	if (step.Expect.ErrorCode != nil) == step.Expect.Result {
+		return ErrMCPExpect
+	}
+	if step.Expect.ErrorContains != "" && step.Expect.ErrorCode == nil {
+		return fmt.Errorf("%w: error_contains goes with error_code", ErrMCPExpect)
+	}
+	if step.Expect.Event != nil {
+		return ErrMCPEvent
+	}
+	if err := foreignExpect(step, "status and header are for messages steps"); err != nil {
+		return err
+	}
+	if step.Expect.Decision != "" {
+		return fmt.Errorf("%w: decision is for tool_check steps", ErrExpectKind)
+	}
+	return unusedHeaders(step)
+}
+
+func foreignExpect(step *Step, why string) error {
+	if step.Expect.Status != 0 || len(step.Expect.Header) > 0 {
+		return fmt.Errorf("%w: %s", ErrExpectKind, why)
+	}
+	return nil
+}
+
+// unusedHeaders refuses headers a tool_check or mcp step never sends. A
+// budget on an mcp step would read as a budget drill and enforce nothing.
+func unusedHeaders(step *Step) error {
+	h := step.Headers
+	if h.BudgetUSD != "" || h.TaskType != "" || h.OnBehalfOf != "" || h.Outcome != "" || h.ApprovalToken != "" {
+		return ErrHeadersUnused
 	}
 	return nil
 }
