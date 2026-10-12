@@ -23,8 +23,8 @@
 # tool results over every declared tool and parameter description. A finding at
 # high or critical severity adds the suspected_injection label to the run, and
 # the starter policy then denies a dangerous capability for that run. This is
-# invariant 93 of TokenFuse, which TokenFuse v1.10.0 does not carry: the first
-# release that does is the one this drill is meant to pass against.
+# invariant 93 of TokenFuse, first released in TokenFuse v1.11.0; v1.10.0 does
+# not carry it.
 #
 # A request is never refused for what a description says (TokenFuse invariant
 # 27: a detector that reads the text may add a taint label and nothing more). So
@@ -54,9 +54,8 @@
 # HOW A GATEWAY WITHOUT THE GUARDRAIL READS THIS
 #
 # A gateway that does not read declared tools answers step two allow, and the
-# drill reports a Finding (exit 1). For TokenFuse v1.10.0 that is the correct
-# answer, and it is the reason this drill can be fired before the release that
-# passes it: the Finding is the gap that release closes.
+# drill reports a Finding (exit 1). TokenFuse v1.10.0 answers that way; v1.11.0
+# in enforce passes it (VALIDATION.md has both runs).
 #
 # WHEN THE FIREWALL IS NOT ON
 #
