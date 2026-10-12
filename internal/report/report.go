@@ -16,9 +16,12 @@ import (
 // Report is everything one `mockryx run` produced: ready to print, and to
 // persist with Save and re-render later with Load, via `mockryx report`.
 type Report struct {
-	RunID     string          `json:"run_id"`
-	Gateway   string          `json:"gateway"`
-	Generated time.Time       `json:"generated_at"`
+	RunID     string    `json:"run_id"`
+	Gateway   string    `json:"gateway"`
+	Generated time.Time `json:"generated_at"`
+	// MCPBroker is the broker the run's mcp steps were sent to, omitted when
+	// the run had none.
+	MCPBroker string          `json:"mcp_broker,omitempty"`
 	Results   []runner.Result `json:"results"`
 }
 
@@ -35,7 +38,11 @@ func (r Report) TotalFindings() int {
 // Human writes a summary table, one row per scenario, followed by the
 // detail of every Finding.
 func Human(w io.Writer, r Report) {
-	fmt.Fprintf(w, "mockryx: %d scenario(s) against %s\n\n", len(r.Results), r.Gateway)
+	fmt.Fprintf(w, "mockryx: %d scenario(s) against %s", len(r.Results), r.Gateway)
+	if r.MCPBroker != "" {
+		fmt.Fprintf(w, " (mcp broker %s)", r.MCPBroker)
+	}
+	fmt.Fprint(w, "\n\n")
 
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "STATUS\tSCENARIO\tCALLS\tBUDGET BURNED\tFINDINGS")
@@ -52,16 +59,28 @@ func Human(w io.Writer, r Report) {
 		fmt.Fprintf(w, "\n%d defensive gap(s):\n\n", total)
 		for _, res := range r.Results {
 			for _, f := range res.Findings {
-				fmt.Fprintf(w, "  [%s / %s] attempt %d: expected status %d", f.Scenario, f.Step, f.Attempt, f.ExpectStatus)
-				if len(f.ExpectHeader) > 0 {
-					fmt.Fprintf(w, " %v", f.ExpectHeader)
-				}
-				fmt.Fprintf(w, ", got %d. %s\n", f.GotStatus, f.Detail)
+				writeFinding(w, f)
 			}
 		}
 	}
 
 	printSkippedFindings(w, r)
+}
+
+// writeFinding writes one Finding as one line. A messages step's Finding is
+// described by the status it expected and the status it got, as it always was;
+// a tool_check or mcp step has no status, so its Finding says in words what was
+// asked for and what came back.
+func writeFinding(w io.Writer, f runner.Finding) {
+	if f.Kind != "" {
+		fmt.Fprintf(w, "  [%s / %s] attempt %d: expected %s, got %s. %s\n", f.Scenario, f.Step, f.Attempt, f.Expect, f.Got, f.Detail)
+		return
+	}
+	fmt.Fprintf(w, "  [%s / %s] attempt %d: expected status %d", f.Scenario, f.Step, f.Attempt, f.ExpectStatus)
+	if len(f.ExpectHeader) > 0 {
+		fmt.Fprintf(w, " %v", f.ExpectHeader)
+	}
+	fmt.Fprintf(w, ", got %d. %s\n", f.GotStatus, f.Detail)
 }
 
 // printSkippedFindings writes the detail of every Result.SkippedFindings
@@ -85,11 +104,7 @@ func printSkippedFindings(w io.Writer, r Report) {
 	fmt.Fprintf(w, "\n%d skipped-as-not-configured mismatch(es), not counted as a gap unless run with --fail-on-skip:\n\n", n)
 	for _, res := range r.Results {
 		for _, f := range res.SkippedFindings {
-			fmt.Fprintf(w, "  [%s / %s] attempt %d: expected status %d", f.Scenario, f.Step, f.Attempt, f.ExpectStatus)
-			if len(f.ExpectHeader) > 0 {
-				fmt.Fprintf(w, " %v", f.ExpectHeader)
-			}
-			fmt.Fprintf(w, ", got %d. %s\n", f.GotStatus, f.Detail)
+			writeFinding(w, f)
 		}
 	}
 }

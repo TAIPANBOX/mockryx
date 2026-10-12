@@ -152,6 +152,58 @@ elif ! grep -qiE "^${cat_word} example scenarios ship in|[^a-z]${cat_word} examp
 	fi
 fi
 
+# --- the broker drills in scenarios/mcp/ -----------------------------------
+#
+# Added 2026-10-12 with the mcp step kind. The two drills that need an MCP
+# broker live in their own directory, for a reason the README and each file
+# give: a plain `mockryx run ./scenarios` never loads it, so no existing
+# pipeline needs a broker it did not have. That also puts them outside the
+# catalog table above on purpose, and outside its check, and a drill that no
+# check reads is the drill an operator is never told about. So they have a table
+# of their own, whose rows carry the directory (`mcp/<file>.yaml`) so the two
+# tables cannot be mistaken for each other, and this checks it the same way:
+# both directions, the prose count, and the same refusal to report OK when
+# either subject has gone.
+mcp_files=$(find scenarios/mcp -maxdepth 1 -name '*.yaml' -type f -exec basename {} \; 2>/dev/null | sort)
+mcp_rows=$(grep -oE '^\| `mcp/[a-z0-9-]+\.yaml`' "$readme" | tr -d '|` ' | sed 's#^mcp/##' | sort)
+
+if [ -z "$mcp_files" ]; then
+	note "scenarios/mcp/ holds no broker drill files at all, so this check measured nothing about them"
+	note "  they are the only drills that rehearse the MCP broker; if they moved, teach this script where"
+elif [ -z "$mcp_rows" ]; then
+	note "the README no longer prints a broker drill table, so this check has nothing to compare against"
+	note "  it listed one row per drill as: | \`mcp/<file>.yaml\` | <rehearses> | <requires> | <expects> |"
+	note "  if you reworded the table, teach this script to read the new shape in the same commit"
+else
+	while IFS= read -r f; do
+		[ -n "$f" ] || continue
+		grep -qx "$f" <<<"$mcp_rows" ||
+			note "scenarios/mcp/$f ships and is not in the README broker table, so nobody reading the README knows this drill exists"
+	done <<<"$mcp_files"
+
+	while IFS= read -r r; do
+		[ -n "$r" ] || continue
+		grep -qx "$r" <<<"$mcp_files" ||
+			note "the README broker table has a row for mcp/$r and scenarios/mcp/ has no such file"
+	done <<<"$mcp_rows"
+fi
+
+mcp_n=$(find scenarios/mcp -maxdepth 1 -name '*.yaml' -type f 2>/dev/null | wc -l | tr -d ' ')
+mcp_word="${WORDS[$mcp_n]:-}"
+if [ "$mcp_n" -gt 0 ]; then
+	if [ -z "$mcp_word" ]; then
+		note "there are $mcp_n broker drills in scenarios/mcp/ and this check only knows how to spell up to twenty"
+	elif ! grep -qiE "(^|[^a-z])${mcp_word} drills rehearse the MCP credential broker" "$readme"; then
+		found=$(grep -oiE '[a-z]+ drills rehearse the MCP credential broker' "$readme" | head -1)
+		if [ -z "$found" ]; then
+			note "the README no longer says how many broker drills ship, so this check has nothing to compare against"
+			note "  it said '<n> drills rehearse the MCP credential broker'; if you reworded it, update this script in the same commit"
+		else
+			note "the README says '$found' and scenarios/mcp/ holds $mcp_n"
+		fi
+	fi
+fi
+
 stated=$(grep -o 'badge/tests-[0-9]*-' "$readme" | grep -o '[0-9]*' | head -1)
 if [ -z "$stated" ]; then
 	note "the README carries no tests badge, so this check has nothing to compare against"
@@ -172,3 +224,4 @@ fi
 
 printf '%s test functions, and the badge says so.\n' "$actual"
 printf '%s scenarios in scenarios/, and the README catalog names every one of them.\n' "$cat_n"
+printf '%s broker drills in scenarios/mcp/, and the README broker table names every one of them.\n' "$mcp_n"

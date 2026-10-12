@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-108-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-165-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-1%20(mvp)-success.svg)
 
@@ -33,16 +33,20 @@ as the guardrails it rehearses. It is a fire drill, not a fire: see
 Mockryx sends crafted requests, including "hostile" ones (a request for a
 tool that should be denied, of the kind a prompt-injected agent might make,
 a prompt that embeds a fake secret, a loop designed to burn through a
-budget) to one place only: the gateway URL an operator passes it on the
-command line. In normal use that is the operator's own pre-production
-TokenFuse gateway, running in front of a fake or echo model provider, never
-a real one and never anyone else's system.
+budget) to two places only, both of which an operator names on the command
+line: the gateway URL, and, for the broker drills in `scenarios/mcp/`, the MCP
+broker URL passed with `--mcp-broker`. In normal use those are the operator's
+own pre-production TokenFuse gateway, running in front of a fake or echo model
+provider, and the operator's own MCP broker in front of a fake MCP server,
+never a real provider and never anyone else's system.
 
 "Hostile input" here means replaying the kinds of input an operator's own
 agents could meet in the wild, so a weakness in the operator's own defenses
 is caught by mockryx first, in a sandbox, instead of by a real user in
 production. Mockryx does not discover targets, does not scan, does not carry
-an offensive payload, and does not reach outside the one URL it is given.
+an offensive payload, and does not reach outside the URLs it is given. No
+scenario file can name either one: the format has no field an address could go
+in.
 Every scenario it ships with says so again, at the top of the file.
 
 <div align="center">
@@ -133,7 +137,9 @@ run is not a clean sweep and is more useful for it: six of the eight then in `sc
 configured" against a firewall that was enforcing. Both are written up, with the wire evidence, in
 [`VALIDATION.md`](VALIDATION.md). The two drills added after that, `token-flood` and `pii-in-prompt`,
 were fired on 2026-10-12 against TokenFuse v1.10.0 in stub mode, with the commands and results in the
-same file.
+same file, and so were the drills that needed the format to grow: tool history and `tool_check` (which
+let `injected-page` fire at last, and added `egress-after-untrusted-read`) and the MCP broker drills in
+`scenarios/mcp/`.
 
 ![Mockryx pre-prod rehearsal: 3 drills run against a real gateway, 3 held, 0 defensive gaps, $0 real spend](assets/13-mockryx.png)
 
@@ -168,7 +174,8 @@ real spend, remain the evidence for the harness itself.
 </div>
 
 The diagram above predates `verdryx-quality-drift`, `injected-page`, `reaction-chain-reaches-heraldyx`,
-`token-flood`, `pii-in-prompt` and the game-day drill below; it still shows the original five.
+`token-flood`, `pii-in-prompt`, `egress-after-untrusted-read`, the broker drills and the game-day drill
+below; it still shows the original five.
 
 Mockryx works in four steps:
 
@@ -186,7 +193,7 @@ Mockryx works in four steps:
    (`internal/events`), via `agent-stack-go/event.ChainedWriter`, so a fire
    drill leaves the same kind of audit trail as the guardrails it rehearses.
 
-Ten example scenarios ship in `scenarios/`, each rehearsing a different
+Eleven example scenarios ship in `scenarios/`, each rehearsing a different
 guardrail, all loaded together by a plain `mockryx run ./scenarios`:
 
 | File | Rehearses | Requires | Expects |
@@ -199,7 +206,8 @@ guardrail, all loaded together by a plain `mockryx run ./scenarios`:
 | `dlp-secret-leak.yaml` | A prompt that embeds what looks like a live credential | `dlp` | `403` |
 | `pii-in-prompt.yaml` | A support agent pastes a customer's email address and phone number into a prompt (OWASP LLM02:2025) | `dlp` | `403` when PII blocking is on (`TOKENFUSE_DLP_PII=block`); `skipped_not_configured` when it is off, which is TokenFuse's default |
 | `verdryx-quality-drift.yaml` | The same denied tool-use attempt as `wardryx-denied-tool.yaml`, plus Verdryx's off-path reaction to it | `wardryx` | `403` + `x-fuse-wardryx: deny`, and a `verdryx`/`quality_drift` event within 10s (see [Async reaction checks](#async-reaction-checks)) |
-| `injected-page.yaml` | An agent reads a web page that instructs it to exfiltrate data, then tries to; the firewall should refuse on the context's taint labels, not on the wording | `taint` | `403`, and a `tokenfuse`/`taint_block` event within 10s |
+| `injected-page.yaml` | An agent reads a web page that instructs it to exfiltrate data, then asks to run `http_post`; the firewall should refuse on the run's taint labels, not on the wording | `taint` | `200` for the history, then check-tool-call answers `deny`, and a `tokenfuse`/`taint_block` event within 10s |
+| `egress-after-untrusted-read.yaml` | The same tool, `http_post`, asked about before and after a web search has come back into the run: allowed while the run is clean, denied once it has read the web (OWASP LLM01:2025 and LLM06:2025) | `taint` | check-tool-call answers `allow`, then (after the history) `deny` |
 | `reaction-chain-reaches-heraldyx.yaml` | The same denied tool-use attempt, chased three hops instead of one: the in-path refusal, Wardryx's own off-path record of it, and heraldyx's actual notification, all correlated by one run_id across two steps | `wardryx` | `403` + `x-fuse-wardryx: deny`, a `wardryx`/`policy_deny` event within 10s, then a `heraldyx`/`alert_sent` event within 20s |
 
 `dlp-secret-leak.yaml` uses `AKIAIOSFODNN7EXAMPLE`, AWS's own well-known,
@@ -226,13 +234,68 @@ merely flagged), answers `200`, and the drill reports a `Finding`, the same
 reading `dlp-secret-leak` gives the secret scanner's own `mask` and `shadow`
 modes.
 
-**One of these ten cannot currently fire, and says so.** `injected-page.yaml`
-reports `skipped_not_configured` even against a gateway whose agent firewall is
-in `enforce` mode: the firewall judges the tools a model actually INVOKES, and a
-scenario can only declare tools, so the drill never reaches it. The scenario
-file's own header carries the measurement and the wire evidence. Read a skip
-there as "not measured", never as "the firewall is off", until the format can
-express what that drill needs.
+`injected-page.yaml` and `egress-after-untrusted-read.yaml` use the two parts
+of the format that exist for the agent firewall: **tool history** and the
+**`tool_check` step** (see [Scenario file format](#scenario-file-format)). The
+firewall judges what a run has READ and then what it asks to DO, and it reads
+the first from the tools that were *invoked* in the messages it is sent, not
+from the tools a request merely declares. So the drills send a conversation the
+way an agent loop resends it (the assistant called `fetch_url`; the page came
+back as a `tool_result`), and then ask the gateway the question an executor
+asks before it runs a tool, `POST /v1/fuse/check-tool-call`, and assert its
+`decision`. `injected-page` could not fire before this (it reported
+`skipped_not_configured` against a firewall that was enforcing; the old
+write-up is in [`VALIDATION.md`](VALIDATION.md)) and the measured result of the
+fix, in every firewall mode, is in the same file.
+
+Both read the firewall's state from the check's own answer, the `governed`
+field: `false` when the firewall is off, `true` whenever it judged the call.
+An off firewall is `skipped_not_configured`. A firewall in `shadow` mode judges
+and allows, handing back what it would have refused, so both drills report a
+`Finding` there: a firewall that only observes does not hold the line.
+
+### The broker drills: `scenarios/mcp/`
+
+Two drills rehearse the MCP credential broker (`tokenfuse mcp-broker`), the
+second place an agent's tool call is governed. They live in their own
+directory, and a plain `mockryx run ./scenarios` never loads it
+(`internal/scenario.LoadDir` reads one directory, not recursively), for a
+reason that is the same kind of care as the game-day drill's: a scenario with an
+`mcp` step needs a broker, a run that loads one with none refuses with exit
+`2`, and putting these at the top level would turn every pipeline that runs the
+shipped scenarios against a gateway alone from green into a usage error.
+
+| File | Rehearses | Requires | Expects |
+| --- | --- | --- | --- |
+| `mcp/mcp-secret-in-arguments.yaml` | An agent pastes what looks like a live credential (AWS's documented example key) into the arguments of an MCP `tools/call` (OWASP LLM02:2025) | `mcp-dlp` | JSON-RPC error `-32002`, "blocked", when `TOKENFUSE_MCP_DLP=block` |
+| `mcp/mcp-pii-in-arguments.yaml` | An agent hands a customer's email address and phone number (an `example.com` address and a UK fiction-range number) to an MCP tool (OWASP LLM02:2025) | `mcp-dlp-pii` | JSON-RPC error `-32006`, "blocked", when `TOKENFUSE_MCP_DLP_PII=block` |
+
+```sh
+./bin/mockryx run --gateway http://127.0.0.1:4100 \
+  --mcp-broker http://127.0.0.1:4200 \
+  scenarios/mcp
+```
+
+`--gateway` is still required (no step in that directory sends it anything).
+`--mcp-broker`, or `$MOCKRYX_MCP_BROKER`, names the broker. If a loaded scenario
+has an `mcp` step and no broker is named, or the one named does not answer
+`GET /healthz`, `run` exits `2` before sending a single request to either: a
+run of transport errors would have rehearsed nothing and exited `1`, which a CI
+gate reads as a guardrail gap. A run with no `mcp` step never looks at the
+setting.
+
+**How a broker that is not configured reads, and the limit of that.** Both
+scans are opt-in, and the broker stamps no header on a reply, so the signal is
+the reply itself: a JSON-RPC error whose code is one the broker reserves for its
+own guardrails (`-32001` to `-32010`). If no reply in the scenario ever carries
+one, it is `skipped_not_configured`. If one does but it is not the code the
+drill expected (a policy gate, say, stopped the call), it is a `Finding`. The
+limit: a broker whose scan is off, one in `warn`, `mask` or `shadow` mode (which
+log or redact and forward), and one whose `block` is on but let this through all
+answer the same, with the upstream's result, and all read as not configured.
+Where the gateway's `pii-in-prompt` reports a `Finding` for `mask` and `shadow`
+because the gateway announces them in a header, the broker does not. An operator
+who has decided blocking must be on passes `--fail-on-skip`.
 
 ### The game-day drill: `scenarios/game-day/`
 
@@ -277,6 +340,20 @@ genuine `Finding`. If it never appears, not even once, across every attempt,
 the gateway plainly does not have that feature configured, and the scenario
 reports `skipped_not_configured` instead, with its raw mismatches dropped:
 they reflect an absent feature, not a defensive gap.
+
+That evidence is what a `messages` step offers. The two other step kinds have
+no header to read, and each says what its signal is:
+
+| Step kind | The guardrail has shown itself when |
+| --- | --- |
+| `request` (the original) | the `x-fuse-<requires>` response header is present on any response |
+| `tool_check` | check-tool-call answered `governed: true` (the firewall judged the call; an off firewall answers `false`). A scenario with a `tool_check` step must declare `requires: taint`, since nothing else would let it read as not configured |
+| `mcp` | the broker answered with a JSON-RPC error in the range it reserves for its guardrails, `-32001` to `-32010`. A scenario with an `mcp` step must declare some `requires` |
+
+A reply that cannot be read as the protocol at all (check-tool-call answering
+`404` or with no decision, a broker answering something that is not JSON-RPC)
+is a `Finding`, never a skip: it says nothing about whether the guardrail is
+configured.
 
 A scenario with no `requires` (the budget Breaker is a core, always-on
 gateway feature, so `runaway-budget` and `token-flood` have none) can never be
@@ -375,7 +452,7 @@ steps:                          # required, at least one
   - name: request-shell-exec    # required
     repeat: 1                   # optional, default 1: how many times to send this
                                  # request, stopping early at the first matching attempt
-    request:                    # required: the JSON body POSTed to {gateway}/v1/messages
+    request:                    # one of request, tool_check, mcp (below): the JSON body POSTed to {gateway}/v1/messages
       model: claude-haiku       # required
       max_tokens: 50             # optional
       messages:                  # required, at least one, {role, content}
@@ -395,7 +472,7 @@ steps:                          # required, at least one
       outcome: case_resolved
       approval_token: ...
     expect:                      # required
-      status: 403                # required: the HTTP status the guardrail should answer with
+      status: 403                # required for a request step: the HTTP status the guardrail should answer with
       header:                    # optional, exact-match response header assertions
         x-fuse-wardryx: deny
       within_repeats: 1          # optional, default = repeat: the guardrail must fire by
@@ -409,6 +486,94 @@ steps:                          # required, at least one
 
 `request` marshals directly onto the wire in the Anthropic Messages API
 shape the TokenFuse gateway proxies, so a scenario reads like a real call.
+
+### Tool history in a message
+
+A message's `content` is a plain string, as above, or a list of typed blocks,
+exactly as the Messages API takes it. The list form is how a scenario supplies
+tool history: the tools the assistant already invoked, and what they returned.
+The agent firewall derives a run's taint labels from invoked tools in the
+messages it is sent, so this is what puts a run in the state a drill wants to
+test.
+
+```yaml
+messages:
+  - role: user
+    content: "Summarise the vendor page."          # a plain string, as before
+  - role: assistant
+    content:
+      - type: tool_use                              # a tool the assistant invoked
+        id: toolu_01                                # required
+        name: fetch_url                             # required
+        input: {page: vendor-pricing}               # optional; sent as {} when absent
+  - role: user
+    content:
+      - type: tool_result                           # what it returned
+        tool_use_id: toolu_01                       # required
+        content: "Vendor pricing, three tiers."     # a string
+```
+
+`text` blocks (`{type: text, text: ...}`) are accepted too. Any other `type` is
+refused when the file loads. A scenario written with plain strings marshals
+onto the wire byte for byte as it did before this existed.
+
+### The `tool_check` step
+
+Instead of `request`, a step can ask the gateway whether a tool may run:
+
+```yaml
+requires: taint                    # required with a tool_check step: see "Findings vs. not configured"
+steps:
+  - name: the-agent-asks-to-post
+    tool_check:
+      tool: http_post              # POST {gateway}/v1/fuse/check-tool-call {run_id, tool}
+    headers:
+      agent_id: agent://mockryx.local/rehearsal/researcher   # only run_id and agent_id are sent
+    expect:
+      decision: deny               # required: allow or deny
+      event: {source: tokenfuse, type: taint_block}          # optional, as on any step
+```
+
+The `run_id` is the scenario's own, shared with every other step, so tool
+history sent by an earlier `request` step is what the check is judged against.
+The endpoint judges and never accumulates: it does not add labels, which is why
+the history has to arrive on `/v1/messages` first.
+
+### The `mcp` step
+
+Or a step can send the MCP broker one JSON-RPC 2.0 request:
+
+```yaml
+requires: mcp-dlp                  # required with an mcp step: it is how "not configured" is read
+steps:
+  - name: raw-secret-in-tool-arguments
+    mcp:
+      method: tools/call           # required
+      params:                      # optional, sent as written
+        name: search_notes
+        arguments: {query: "AKIAIOSFODNN7EXAMPLE"}
+    headers:
+      agent_id: agent://mockryx.local/rehearsal/notetaker    # only run_id and agent_id are sent
+    expect:
+      error_code: -32002           # exactly one of error_code and result
+      error_contains: blocked      # optional: the message must contain this
+      # result: true               # ... or: a JSON-RPC result and no error
+```
+
+The request goes to the broker named by `--mcp-broker` or `$MOCKRYX_MCP_BROKER`,
+as the URL is written, with the scenario's `run_id` in `x-fuse-run-id` and the
+`agent_id` in `x-fuse-agent-id`. There is deliberately no field for the broker's
+address, nor for choosing one of its upstreams: where a drill goes is the
+operator's decision on the command line and nowhere else (CLAUDE.md invariant
+6). `error_contains` exists because the MCP specification gives some of these
+numbers a meaning of its own, so an MCP server behind the broker could raise
+`-32002` itself and a code alone would pass on an error the broker never
+raised. An `mcp` step cannot declare `expect.event`: the broker's events carry
+no `run_id` to correlate on.
+
+A step sets exactly one of `request`, `tool_check` and `mcp`, and the `expect`
+fields of the other kinds are refused (a `status` on a `tool_check` is an
+error, not ignored). `repeat` and `within_repeats` work on all three.
 
 ---
 
@@ -581,9 +746,13 @@ Releases before the next tag have none of this; the tags say so.
 # after the scenario directory:
 ./bin/mockryx run --gateway http://127.0.0.1:8080 ./scenarios
 
+# The broker drills in scenarios/mcp/ also need the MCP broker's address:
+./bin/mockryx run --gateway http://127.0.0.1:8080 --mcp-broker http://127.0.0.1:4200 ./scenarios/mcp
+
 # ... or via environment variables:
 export MOCKRYX_GATEWAY=http://127.0.0.1:8080
 export MOCKRYX_API_KEY=...          # optional, sent as x-api-key
+export MOCKRYX_MCP_BROKER=http://127.0.0.1:4200   # only needed when a loaded scenario has an mcp step
 export MOCKRYX_EVENTS_PATH=out/events.ndjson   # optional, opt-in telemetry
 ./bin/mockryx run ./scenarios
 
@@ -613,7 +782,7 @@ guardrail gap from a misconfigured harness:
 | --- | --- |
 | `0` | Every rehearsed guardrail held: no `Finding`. |
 | `1` | The run completed and found one or more defensive gaps (a `Finding`). This is the signal a CI gate should fail on. |
-| `2` | A usage, config, or load error (bad flag, wrong argument count, no gateway, unreadable scenario directory): nothing was actually rehearsed, so treat it as a broken harness, not a guardrail gap. |
+| `2` | A usage, config, or load error (bad flag, wrong argument count, no gateway, unreadable scenario directory, a loaded `mcp` step with no reachable `--mcp-broker`): nothing was actually rehearsed, so treat it as a broken harness, not a guardrail gap. |
 
 Convention: fail the CI step only on exit `1`. Treat exit `2` as a broken
 pipeline to fix, not a security finding to triage.
@@ -631,7 +800,7 @@ the SPEC §6.5 `prev_hash` chain; verify a stream with `agent-conform -chain
 | Type | Severity | When |
 | --- | --- | --- |
 | `sim_run` | info | once at the start and once at the end of a run |
-| `sim_finding` | high | once per `Finding` |
+| `sim_finding` | high | once per `Finding`; for a `tool_check` or `mcp` step its data also carries `kind`, `expect` and `got` |
 | `blast_radius_measured` | medium | once per scenario: calls made, dollars spent |
 
 Every mockryx event carries `agent_id: "agent://mockryx.local/harness"`: a
@@ -648,9 +817,11 @@ or unwritable events path never blocks a run.
   subcommand switch over `flag.FlagSet`, mirroring
   [Idryx](https://github.com/TAIPANBOX/idryx)'s house style: no `cobra`, no
   hidden magic.
-- **One outbound target.** `runner.Run` only ever calls the one
-  `gatewayURL` it is given; it does not read further configuration to
-  decide where to send traffic.
+- **Two outbound targets, both named by the operator.** `runner.Run` only
+  ever calls the one `gatewayURL` it is given, and `runner.RunWithBroker`
+  additionally the one `brokerURL` an `mcp` step goes to; neither reads
+  further configuration to decide where to send traffic, and no scenario
+  field can name either.
 - **`run_id` reuse within a step, not across steps or runs.** An explicit
   `headers.run_id` is sent verbatim, unchanged, across every repeat of that
   step, since a fresh run_id per attempt would reset the very budget state a
@@ -689,7 +860,7 @@ or unwritable events path never blocks a run.
 - [x] human + JSON report rendering, save/load (`mockryx report`)
 - [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.ChainedWriter` (SPEC 6.5 prev_hash chain), opt-in (`MOCKRYX_EVENTS_PATH`)
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
-- [x] ten shipped example scenarios in `scenarios/`: `runaway-budget` and `token-flood` (core Breaker: spend accumulated over a loop, and one call refused at reservation), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` and `pii-in-prompt` (DLP: a secret, and personal data when PII blocking is on), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction), `injected-page` (the agent firewall, taint labels not wording), `reaction-chain-reaches-heraldyx` (Wardryx's in-path deny, its own off-path record, and heraldyx's actual notification, all three); plus one game-day drill outside `scenarios/`, `scenarios/game-day/provider-outage.yaml`, for a deliberately unreachable upstream
+- [x] eleven shipped example scenarios in `scenarios/`: `runaway-budget` and `token-flood` (core Breaker: spend accumulated over a loop, and one call refused at reservation), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` and `pii-in-prompt` (DLP: a secret, and personal data when PII blocking is on), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction), `injected-page` and `egress-after-untrusted-read` (the agent firewall, taint labels not wording, through tool history and a `tool_check`), `reaction-chain-reaches-heraldyx` (Wardryx's in-path deny, its own off-path record, and heraldyx's actual notification, all three); plus one game-day drill outside `scenarios/`, `scenarios/game-day/provider-outage.yaml`, for a deliberately unreachable upstream, and the two broker drills in `scenarios/mcp/`, `mcp-secret-in-arguments` and `mcp-pii-in-arguments`, which need `--mcp-broker`
 - [x] `agent-stack-go` v1.1.0 pinned dependency, no local `replace`
 - [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`); exercised by `scripts/selftest.sh` both ways (a matching event found, a missing one reported as a `Finding`), and shipped in `verdryx-quality-drift.yaml`
 - [ ] Later: additional built-in scenario packs, as new guardrails ship in TokenFuse / Wardryx

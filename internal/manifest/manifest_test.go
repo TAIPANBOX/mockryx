@@ -266,9 +266,10 @@ func TestEveryEnvironmentVariableThisRepositoryReadsIsDeclaredAndTheReverse(t *t
 // is an error shown to the operator. So the difference between "I would not
 // start" and "I ran and it went badly" is a cross-repository interface.
 //
-// Three refusals, all the same code, and the third is the one that matters: it
-// still refuses when a gateway IS configured, which is what makes this
-// fail-before-half-the-job rather than merely fail-fast.
+// Five refusals, all the same code, and the last three are the ones that
+// matter: they still refuse when a gateway IS configured, which is what makes
+// this fail-before-half-the-job rather than merely fail-fast. The fourth and
+// fifth arrived with the mcp step kind (2026-10-12).
 func TestTheExitCodeContractOtherRepositoriesReadIsTheDeclaredOne(t *testing.T) {
 	if testing.Short() {
 		t.Skip("starts processes")
@@ -307,6 +308,30 @@ func TestTheExitCodeContractOtherRepositoriesReadIsTheDeclaredOne(t *testing.T) 
 		}
 		if strings.Contains(out, "scenario(s) against") {
 			t.Errorf("it began the drill before refusing:\n%s", out)
+		}
+	}
+
+	// 4. A scenario with an mcp step, a gateway, and no MCP broker named.
+	if c.Checked.RefusesBeforeContactingTheGateway {
+		env := []string{"MOCKRYX_GATEWAY=http://127.0.0.1:1/unreachable"}
+		got, out := status(t, bin, env, sub, filepath.Join(r, "scenarios", "mcp"))
+		if got != want {
+			t.Errorf("an mcp scenario with a gateway and no MCP broker exited %d; components.json says %d\n%s", got, want, out)
+		}
+		if strings.Contains(out, "scenario(s) against") || !strings.Contains(out, "mcp-broker") {
+			t.Errorf("it began the drill before refusing, or did not say which setting was missing:\n%s", out)
+		}
+
+		// 5. The broker is named and nothing listens there. This is a usage
+		// error and not a run of transport Findings, which would have proved
+		// nothing and exited 1.
+		env = []string{"MOCKRYX_GATEWAY=http://127.0.0.1:1/unreachable", "MOCKRYX_MCP_BROKER=http://127.0.0.1:1"}
+		got, out = status(t, bin, env, sub, filepath.Join(r, "scenarios", "mcp"))
+		if got != want {
+			t.Errorf("an mcp scenario with an unreachable MCP broker exited %d; components.json says %d\n%s", got, want, out)
+		}
+		if strings.Contains(out, "scenario(s) against") || !strings.Contains(out, "unreachable") {
+			t.Errorf("it began the drill before refusing, or did not say the broker is unreachable:\n%s", out)
 		}
 	}
 

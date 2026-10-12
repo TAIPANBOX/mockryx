@@ -25,16 +25,23 @@ type Config struct {
 	// from MOCKRYX_WATCH_EVENTS, a comma-separated list of paths. Empty
 	// means no scenario in the run may declare expect.event.
 	WatchEvents []string
+	// MCPBroker is the base URL of the MCP broker an mcp step talks to, from
+	// MOCKRYX_MCP_BROKER. Empty means no loaded scenario may contain an mcp
+	// step, or run exits 2 before sending anything. Like Gateway, it comes
+	// from here and from --mcp-broker and from nowhere else: no scenario
+	// file can carry it (CLAUDE.md invariant 6).
+	MCPBroker string
 }
 
-// FromEnv reads MOCKRYX_GATEWAY, MOCKRYX_EVENTS_PATH, MOCKRYX_API_KEY, and
-// MOCKRYX_WATCH_EVENTS.
+// FromEnv reads MOCKRYX_GATEWAY, MOCKRYX_EVENTS_PATH, MOCKRYX_API_KEY,
+// MOCKRYX_WATCH_EVENTS, and MOCKRYX_MCP_BROKER.
 func FromEnv() Config {
 	return Config{
 		Gateway:     os.Getenv("MOCKRYX_GATEWAY"),
 		EventsPath:  os.Getenv("MOCKRYX_EVENTS_PATH"),
 		APIKey:      os.Getenv("MOCKRYX_API_KEY"),
 		WatchEvents: splitNonEmpty(os.Getenv("MOCKRYX_WATCH_EVENTS")),
+		MCPBroker:   os.Getenv("MOCKRYX_MCP_BROKER"),
 	}
 }
 

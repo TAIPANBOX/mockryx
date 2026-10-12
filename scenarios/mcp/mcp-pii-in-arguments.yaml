@@ -1,0 +1,67 @@
+# mcp-pii-in-arguments: a fire drill for personal data in an MCP tool call.
+# (OWASP Top 10 for LLM Applications 2025: LLM02:2025 Sensitive Information
+# Disclosure.)
+#
+# Defensive intent: this sends the operator's OWN MCP broker a tools/call whose
+# arguments carry a customer's email address and phone number, both obviously
+# fake: an example.com address and a number from the UK fiction range. It
+# rehearses "what happens when one of our agents hands a customer's contact
+# details to a tool", so we confirm the broker refuses the call before the
+# details reach the MCP server behind it. It never targets any system other than
+# the broker url passed with --mcp-broker.
+#
+# IT LIVES IN scenarios/mcp/ FOR THE REASON mcp-secret-in-arguments.yaml GIVES:
+# a plain `mockryx run ./scenarios` never loads it, so no existing pipeline needs
+# a broker it did not have.
+#
+#   mockryx run --gateway http://127.0.0.1:4100 --mcp-broker http://127.0.0.1:4200 scenarios/mcp
+#
+# PII BLOCKING IS OFF BY DEFAULT IN THE BROKER, AND THAT IS A CHOICE, NOT A GAP.
+#
+# The broker leaves personal data alone unless the operator opts in with
+# TOKENFUSE_MCP_DLP_PII (off, shadow, mask or block, switched independently of
+# TOKENFUSE_MCP_DLP). This drill rehearses `block`, which answers a JSON-RPC
+# error -32006 "blocked: pii in tool arguments". With it off, the call is
+# forwarded and the MCP server's own result comes back, and this drill reports
+# skipped_not_configured, because that is how its operator meant the broker to
+# run.
+#
+# The signal and its limit are the ones mcp-secret-in-arguments.yaml spells out:
+# the broker stamps nothing on a reply, so the signal is a JSON-RPC error with a
+# code the broker reserves (-32001 to -32010), and a broker with PII blocking off
+# reads the same as one that is on and let this through. `mask` and `shadow` also
+# forward the call, so they also read as skipped here, where the gateway's own
+# pii-in-prompt drill reports a Finding for them: the gateway announces its mask
+# and shadow modes in a header and the broker does not. --fail-on-skip is the
+# operator's way to insist that blocking is on.
+#
+# WHAT THIS DOES NOT REHEARSE
+#
+#   - What the scanner can find. It matches an email address, a Luhn-valid card
+#     number and an international (leading "+") phone number by pattern; a bare
+#     national number, a name or a postal address are not matched. This drill
+#     sends the two it matches.
+#   - PII in the MCP server's RESPONSE, which the broker also scans (and, in
+#     block mode, refuses with the same -32006). That needs a server that
+#     returns personal data, which a scenario cannot make one do.
+name: mcp-pii-in-arguments
+requires: mcp-dlp-pii
+description: >
+  An agent hands a customer's email address and phone number (an example.com
+  address and a UK fiction-range number, not a real person's) to an MCP tool.
+  The broker's PII blocking, switched on, should refuse the call before it
+  reaches the MCP server, with JSON-RPC error -32006. With it off, its default,
+  the drill reports not configured instead of a Finding.
+steps:
+  - name: customer-contact-details-in-tool-arguments
+    mcp:
+      method: tools/call
+      params:
+        name: search_notes
+        arguments:
+          query: "Customer Jane Roe wrote in about invoice 4471. Call her on +44 7700 900123 or write to jane.roe@example.com."
+    headers:
+      agent_id: agent://mockryx.local/rehearsal/support-bot
+    expect:
+      error_code: -32006
+      error_contains: blocked

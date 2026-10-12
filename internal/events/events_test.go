@@ -203,3 +203,40 @@ func TestEmittedEventsChainAcrossRunsAndResume(t *testing.T) {
 		t.Fatalf("expected 3 chained events, got %+v", report)
 	}
 }
+
+// The sim_finding for a tool_check or an mcp gap says what was asked for and
+// what came back. A finding from a messages step must keep exactly the keys
+// it always had, so nothing reading the bus sees a new key it did not ask for.
+func TestSimFindingCarriesKindExpectAndGotOnlyForTheNewStepKinds(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.ndjson")
+	e, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.SimFinding(SimFindingInput{RunID: "r", Scenario: "a", Step: "s", Attempt: 1, ExpectStatus: 403, GotStatus: 200, Detail: "d"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.SimFinding(SimFindingInput{RunID: "r", Scenario: "b", Step: "s", Attempt: 1, Detail: "d",
+		Kind: "tool_check", Expect: `decision "deny"`, Got: `decision "allow" (governed: true)`}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Close(); err != nil {
+		t.Fatal(err)
+	}
+	events, err := event.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events", len(events))
+	}
+	for _, k := range []string{"kind", "expect", "got"} {
+		if _, has := events[0].Data[k]; has {
+			t.Errorf("a messages-step sim_finding gained the key %q", k)
+		}
+	}
+	if events[1].Data["kind"] != "tool_check" || events[1].Data["expect"] != `decision "deny"` ||
+		events[1].Data["got"] != `decision "allow" (governed: true)` {
+		t.Errorf("tool_check sim_finding data = %+v", events[1].Data)
+	}
+}

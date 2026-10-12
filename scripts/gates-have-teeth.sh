@@ -215,6 +215,31 @@ assert not p.exists(), "the harness left a planted scenario behind"
 p.write_text("name: planted\nsteps: []\n")')" \
 	"example scenarios ship in"
 
+# The broker drills have a table of their own (their rows carry `mcp/`), checked
+# the same way, because a drill that lives outside scenarios/ and outside the
+# catalog table above is read by no check at all unless something reads it.
+run_case "readme-numbers: a broker drill missing from the broker table" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'import re
+s = open("README.md").read()
+rows = [l for l in s.splitlines() if l.startswith("| `mcp/mcp-pii-in-arguments.yaml`")]
+assert rows, "no broker table row for mcp-pii-in-arguments.yaml"
+open("README.md","w").write(s.replace(rows[0] + "\n", "", 1))')" \
+	"ships and is not in the README broker table"
+
+run_case "readme-numbers: a broker table row for a drill that does not ship" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'edit("README.md", "| `mcp/mcp-secret-in-arguments.yaml` |", "| `mcp/mcp-secret-in-argument.yaml` |")')" \
+	"scenarios/mcp/ has no such file"
+
+run_case "readme-numbers: a broker drill ships and the count sentence does not move" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'import pathlib
+p = pathlib.Path("scenarios/mcp/planted-by-the-teeth-harness.yaml")
+assert not p.exists(), "the harness left a planted scenario behind"
+p.write_text("name: planted\nsteps: []\n")')" \
+	"drills rehearse the MCP credential broker"
+
 run_case "reproducible-build: the workflow loses a build flag" fail \
 	'./scripts/reproducible-build.sh' \
 	"$(py 'edit(".github/workflows/release.yml", "go build -trimpath", "go build")')" \
@@ -224,6 +249,27 @@ run_case "reproducible-build: a version back in the asset name" fail \
 	'./scripts/reproducible-build.sh' \
 	"$(py 'edit(".github/workflows/release.yml", "out=\"mockryx_", "out=\"mockryx_${VERSION}_")')" \
 	"carries the version"
+
+# invariant 2, for the two step kinds added on 2026-10-12. Each plants a drill
+# that cannot see its guardrail missing, which is the one thing selftest.sh
+# exists to refuse: it must PASS against a stub that enforces nothing. They also
+# prove the script's exit status, which until the same day was the status of its
+# LAST check, so the first one could print FAIL and still exit 0.
+run_case "selftest: a tool_check drill that cannot fail" fail \
+	'./scripts/selftest.sh' \
+	"$(py 'import pathlib
+p = pathlib.Path("scenarios/planted-by-the-teeth-harness.yaml")
+assert not p.exists(), "the harness left a planted scenario behind"
+p.write_text("name: planted-tool-check\nrequires: taint\nsteps:\n  - name: asks\n    tool_check:\n      tool: http_post\n    expect:\n      decision: allow\n")')" \
+	"PASSED against a gateway with no guardrails"
+
+run_case "selftest: an mcp drill that cannot fail" fail \
+	'./scripts/selftest.sh' \
+	"$(py 'import pathlib
+p = pathlib.Path("scenarios/mcp/planted-by-the-teeth-harness.yaml")
+assert not p.exists(), "the harness left a planted scenario behind"
+p.write_text("name: planted-mcp\nrequires: mcp-dlp\nsteps:\n  - name: asks\n    mcp:\n      method: tools/list\n    expect:\n      result: true\n")')" \
+	"must read as not configured"
 
 echo
 echo "=== and what they must NOT catch ==="
@@ -242,6 +288,11 @@ run_case "readme-numbers: a badge-shaped number elsewhere in the README" pass \
 run_case "readme-numbers: a catalog-row-shaped line inside a sentence" pass \
 	'./scripts/readme-numbers.sh' \
 	"$(py 'edit("README.md", "## Install / build", "Once we wrote | `ghost-drill.yaml` | nothing | none | none | in a note.\n\n## Install / build")')"
+
+# The same anchor on the broker table: a sentence that quotes a row is not one.
+run_case "readme-numbers: a broker-row-shaped line inside a sentence" pass \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'edit("README.md", "## Install / build", "Once we wrote | `mcp/ghost-drill.yaml` | nothing | none | none | in a note.\n\n## Install / build")')"
 
 # Order is not a claim: the table says which drills exist, never in what
 # sequence. A gate that failed on a reordering would be teaching people to
@@ -293,6 +344,28 @@ for p in sorted(pathlib.Path("scenarios").glob("*.yaml")):
     moved += 1
 assert moved, "there were no scenarios to take away"')" \
 	"holds no scenario files at all"
+
+run_case "readme-numbers: no broker table left to compare against" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'import re
+s = open("README.md").read()
+new = re.sub(r"^\| `mcp/[a-z0-9-]+\.yaml` \|", "| a broker drill |", s, flags=re.M)
+assert new != s, "there was no broker table to take away"
+open("README.md","w").write(new)')" \
+	"no longer prints a broker drill table"
+
+run_case "readme-numbers: no broker drills left to compare the table against" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'import os, pathlib
+stash = pathlib.Path("mcp-stashed-by-the-teeth-harness")
+assert not stash.exists(), "the harness left a stash behind"
+stash.mkdir()
+moved = 0
+for p in sorted(pathlib.Path("scenarios/mcp").glob("*.yaml")):
+    os.rename(p, stash / p.name)
+    moved += 1
+assert moved, "there were no broker drills to take away"')" \
+	"holds no broker drill files at all"
 
 run_case "reproducible-build: no build command left to read" fail \
 	'./scripts/reproducible-build.sh' \
