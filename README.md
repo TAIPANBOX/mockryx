@@ -150,7 +150,7 @@ Full write-up: [`VALIDATION.md`](VALIDATION.md).
 ### Running it on a Kubernetes cluster
 
 The whole stack was deployed as a five-node k3s cluster on Hetzner, AWS and GCP
-between 25 and 27 July 2026 (six clusters, all destroyed afterwards). The
+between 25 and 27 July 2026. The
 manifests, the traps and the evidence are public in
 [stack-k8s](https://github.com/TAIPANBOX/stack-k8s). Mockryx is not a pod. The console **executes** it to fire drills at
 the gateway, so it ships inside the console image. There is also a `drills`
@@ -581,8 +581,8 @@ error, not ignored). `repeat` and `within_repeats` work on all three.
 
 ## Install / build
 
-**A prebuilt binary, with the scenarios beside it.** Linux, macOS and Windows,
-x86_64 and arm64, on the
+**A prebuilt binary, with the scenarios beside it.** Linux and macOS on x86_64 and arm64, and
+Windows on x86_64, on the
 [Releases page](https://github.com/TAIPANBOX/mockryx/releases) for every `v*`
 tag, with a `SHA256SUMS`. This is the artifact most people want: mockryx is a
 pre-production rehearsal you point at your own gateway once, before a release,
@@ -717,8 +717,9 @@ make build   # -> ./bin/mockryx
 
 ## Verify a download
 
-Every release is signed keyless with Sigstore and carries a build-provenance
-attestation and an SBOM. With `cosign` and `gh` installed:
+From the next `v*` tag on, every release is signed keyless with Sigstore and
+carries a build-provenance attestation and an SBOM. v0.2.1 and earlier have
+none of these. For a tag that does, with `cosign` and `gh` installed:
 
 ```sh
 tag=<tag>
@@ -737,8 +738,6 @@ cosign verify ghcr.io/taipanbox/mockryx:<tag> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 gh attestation verify oci://ghcr.io/taipanbox/mockryx:<tag> -R TAIPANBOX/mockryx
 ```
-
-Releases before the next tag have none of this; the tags say so.
 
 ## Quick start
 
