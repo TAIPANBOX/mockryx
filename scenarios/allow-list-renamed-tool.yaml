@@ -1,0 +1,87 @@
+# allow-list-renamed-tool: a fire drill for a tool allow-list that must hold
+# the tool's exact name.
+#
+# Defensive intent: this asks the operator's OWN gateway, in front of a fake
+# or echo provider, to answer a request that declares the tool its allow-list
+# names (lookup_order_status), and then a request that declares the same tool
+# under a renamed spelling (lookup-order-status). An allow-list names tools
+# exactly: a renamed tool is a different tool, so Wardryx should refuse it
+# before an agent, or a prompt-injected one, uses a look-alike name. It never
+# runs a tool and never targets any system other than the gateway url passed
+# on the command line.
+#
+# How this tells "not configured" from a gap. Wardryx is an optional gateway
+# feature, so this scenario declares "requires: wardryx". The signal is the
+# x-fuse-wardryx response header, the one the sibling Wardryx drills read. If
+# the gateway under test never once stamps that header on any response, Wardryx
+# is not wired into it, and mockryx reports "guardrail not configured". Once any
+# response carries the header, Wardryx is wired, and then a missing allow-list
+# is a gap: Wardryx answers allow for the renamed tool, the expected 403 never
+# comes, and the run reports a Finding. The header is present on every decision
+# Wardryx gives, so it cannot separate an allow-list that is absent from one
+# that is bypassed. Both read as the same Finding.
+#
+# @decided 2026-10-13: the launchers (stack-single, stack-k8s and stack-up) seed
+# this rehearsal policy, named mockryx-allow-list, for
+# agent://mockryx.local/allow-list-rehearsal. That change was in progress on
+# 2026-10-13, so a gateway whose operator has not loaded the policy, while
+# Wardryx is wired, reports a Finding on the renamed-tool step. That is the
+# intended reading: an operator without the policy gets a Finding, not a skip.
+#
+# Failure modes, read before trusting a run. When Wardryx is wired but not
+# answering, TokenFuse answers for it. With TOKENFUSE_WARDRYX_FAILMODE=closed
+# (the launcher setting) the gateway refuses the listed-tool request with 403
+# and x-fuse-wardryx: deny. The listed step then fails, and the renamed step
+# PASSES for the wrong reason: its 403 is the outage, not the allow-list. With
+# failmode open (the TokenFuse default) the gateway answers the renamed tool
+# with 200 and x-fuse-wardryx: allow, a Finding. Both steps must hold for this
+# scenario to pass, so an outage never reads as green.
+#
+# Ships only for a guardrail the current TokenFuse release has: Wardryx's
+# allow_tool rule (Wardryx v1.3.0), reached through TokenFuse v1.11.0, which
+# sends a request's declared tools to the policy plane.
+name: allow-list-renamed-tool
+requires: wardryx
+description: >
+  An agent's policy allows one tool by its exact name. A request that declares
+  that tool should be answered, and a request that declares the same tool under
+  a renamed spelling should be refused by Wardryx's allow-list.
+steps:
+  - name: request-listed-tool
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "look up the status of order 1234"
+      tools:
+        - name: lookup_order_status
+          description: "Look up the status of an order."
+    headers:
+      run_id: mockryx-allow-list-listed-tool
+      agent_id: agent://mockryx.local/allow-list-rehearsal
+      budget_usd: "1.00"
+      task_type: ops_automation
+    expect:
+      status: 200
+      header:
+        x-fuse-wardryx: allow
+  - name: request-renamed-tool
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "look up the status of order 1234"
+      tools:
+        - name: lookup-order-status
+          description: "Look up the status of an order."
+    headers:
+      run_id: mockryx-allow-list-renamed-tool
+      agent_id: agent://mockryx.local/allow-list-rehearsal
+      budget_usd: "1.00"
+      task_type: ops_automation
+    expect:
+      status: 403
+      header:
+        x-fuse-wardryx: deny

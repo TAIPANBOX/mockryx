@@ -35,6 +35,19 @@ func (r Report) TotalFindings() int {
 	return n
 }
 
+// nothingExercised reports whether every scenario was skipped as not
+// configured, so that no guardrail was reached. A result with any other status
+// (passed or failed) means a guardrail answered, so one such result makes this
+// false. An empty Report is handled by the caller, not here.
+func (r Report) nothingExercised() bool {
+	for _, res := range r.Results {
+		if res.Status != runner.StatusSkipped {
+			return false
+		}
+	}
+	return true
+}
+
 // Human writes a summary table, one row per scenario, followed by the
 // detail of every Finding.
 func Human(w io.Writer, r Report) {
@@ -53,15 +66,20 @@ func Human(w io.Writer, r Report) {
 	_ = tw.Flush()
 
 	total := r.TotalFindings()
-	if total == 0 {
-		fmt.Fprintln(w, "\nNo defensive gaps found. Every exercised guardrail held.")
-	} else {
+	switch {
+	case total > 0:
 		fmt.Fprintf(w, "\n%d defensive gap(s):\n\n", total)
 		for _, res := range r.Results {
 			for _, f := range res.Findings {
 				writeFinding(w, f)
 			}
 		}
+	case len(r.Results) == 0:
+		fmt.Fprintln(w, "\nNo guardrail was exercised: no scenario ran.")
+	case r.nothingExercised():
+		fmt.Fprintln(w, "\nNo guardrail was exercised: every scenario was skipped as not configured.")
+	default:
+		fmt.Fprintln(w, "\nNo defensive gaps found. Every exercised guardrail held.")
 	}
 
 	printSkippedFindings(w, r)
