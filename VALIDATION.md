@@ -385,6 +385,36 @@ The enforce run's events file holds one `taint_raised` whose `signals` are `["po
 
 **Not proven here.** A real provider's behaviour under the poisoned text (the stub answers step one). The `taint_raised` event's other members were not checked beyond `signals`. Only the aarch64-apple-darwin binary was run, not the published images.
 
+## `allow-list-renamed-tool`, fired at Wardryx v1.3.0 and TokenFuse v1.11.0, 2026-10-13
+
+@measured `mockryx run` with the commands below, 2026-10-13, the scenario taken from commit `9a30cac`. Each run started its own Wardryx and TokenFuse on loopback (ports 14210 and 14211) and stopped them afterwards.
+
+Builds, with the sha256 each run used:
+
+- mockryx: `go build -o mockryx ./cmd/mockryx` at `9a30cac`, Go 1.27.2, `013859a2...`.
+- Wardryx: `go build -o wardryx ./cmd/wardryx` from a `git archive` of `origin/main` at `b8d365e` (`1ca64a64...`), which differs from the `v1.3.0` tag only by one line of `docs/releases/v1.3.0.md`. The `v1.2.0` build (`33e943d0...`) is from the `v1.2.0` tag at `50c3981`.
+- TokenFuse: the v1.11.0 release asset `tokenfuse-aarch64-apple-darwin`, sha256 `037488e0...`, the same asset the `declared-tool-poisoning` section above names.
+
+Commands. Wardryx: `WARDRYX_ADDR=127.0.0.1:14210`, `WARDRYX_KEYS=<random key>:mockryx:admin`, `WARDRYX_POLICY=<directory>`, `wardryx serve`. TokenFuse: `TOKENFUSE_ADDR=127.0.0.1:14211`, `TOKENFUSE_ALLOW_STUB=1`, `TOKENFUSE_WARDRYX_MODE=enforce`, `TOKENFUSE_WARDRYX_URL=http://127.0.0.1:14210`, `TOKENFUSE_WARDRYX_KEY=<the same key>`, and `TOKENFUSE_WARDRYX_FAILMODE=closed` unless a row says otherwise. Drill: `mockryx run --gateway http://127.0.0.1:14211 --format human --save <report>.json <directory holding only allow-list-renamed-tool.yaml>`.
+
+Policy directories. `starter` holds the launchers' starter rules for `agent://mockryx.local/*` (`require_human_above_usd: 1`, `deny_tool: [shell_exec]`). `shared` holds those plus `mockryx-allow-list` (`allow_tool: [lookup_order_status]`, target `agent://mockryx.local/allow-list-rehearsal`) as a second file.
+
+| Run | Wardryx | Policy | TokenFuse wiring | Status | Exit | What the report says |
+| --- | --- | --- | --- | --- | --- | --- |
+| Green | v1.3.0 | shared | enforce, failmode closed | passed | `0` | both steps held: the listed tool answered, the renamed tool refused |
+| Gap | v1.3.0 | starter | enforce, failmode closed | failed | `1` | request-renamed-tool: expected 403 with `x-fuse-wardryx: deny`, got 200 |
+| Refusal | v1.2.0 | shared | not applicable | not applicable | not applicable | Wardryx does not start: `line 3: field allow_tool not found in type policy.Policy` in the file `01-shared.yaml`, so nothing listens on 14210 (the next two rows cover that state) |
+| Gap on v1.2.0 | v1.2.0 | starter | enforce, failmode closed | failed | `1` | the same finding as the v1.3.0 gap |
+| Wardryx down, closed | not running | not applicable | enforce, failmode closed | failed | `1` | request-listed-tool: expected 200, got 403 (the gateway's own deny). request-renamed-tool passed, for the wrong reason: its 403 is the outage, not the allow-list |
+| Wardryx down, open (the TokenFuse default) | not running | not applicable | enforce, failmode open | failed | `1` | request-renamed-tool: expected 403, got 200 with `x-fuse-wardryx: allow` (the gateway's own answer when Wardryx cannot be reached) |
+| Wardryx not wired | not running | not applicable | no `TOKENFUSE_WARDRYX_*` set | skipped_not_configured | `0` | both steps report not configured (no `x-fuse-wardryx` header on any response). Not counted as gaps |
+
+How to read the table. The scenario passes only when the listed tool is answered with `x-fuse-wardryx: allow` and the renamed tool is refused with `x-fuse-wardryx: deny` in the same run. The two outage rows cannot produce that: under closed failmode the listed step fails, and under open failmode the renamed step fails. A run that reports a pass with Wardryx down would therefore need a gateway other than TokenFuse answering. The not-wired run prints "No defensive gaps found" above its two skip lines; that is the existing wording for a run whose results are all skips, shared with the sibling drills, and the skip lines are what the run reports.
+
+Gates on commit `9a30cac`, run in this order: gofmt, `go vet`, `go test -race ./...` (eight packages ok), `go build ./...`, `deps-tight.sh` (two direct dependencies), `selftest.sh` (13 scenarios: against the silent stub 2 report a gap and 11 report not configured; against the signalling stub none passes), `readme-numbers.sh` (165 test functions, 13 scenarios in `scenarios/`, 2 broker drills), `reproducible-build.sh` (flags present, binary sha256 `add6fc68...` from the script's own build), and `gates-have-teeth.sh` last on the clean commit: 26 cases, OK, tree left clean. `staticcheck` was clean under the cached go1.27.0 toolchain. CI pins go1.27.1 for staticcheck; that toolchain was not available here and was not downloaded. Under go1.27.2, staticcheck 2026.2.1 stops on export data, so the staticcheck run here is not the CI version.
+
+**Not proven here.** A real provider's answer (the stub answers both requests). The shadow and off modes of the Wardryx hook: in shadow the header reads `would-allow` or `would-deny`, and this drill would report a Finding on both steps, but that was not run. Approval holds, and the MCP broker path (`tools/call`): only the LLM request path is covered. The published Wardryx image (`ghcr.io/taipanbox/wardryx:v1.3.0`), which was not pulled. The launchers seeding `mockryx-allow-list`, which was in progress on 2026-10-13 and is not measured at this commit; at stack-single `a68b40d` the install script and examples carried no `allow_tool`. `govulncheck` and `gosec`, which run in CI only. The catalog's `templates-load` check, which reads this format from a sibling checkout. Only aarch64-apple-darwin binaries were run.
+
 ## Method (the Hetzner campaigns above)
 
 Disposable Hetzner VPS boxes (deleted after each run), Mockryx driving a real gateway configured with a
