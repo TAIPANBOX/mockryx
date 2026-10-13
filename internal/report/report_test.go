@@ -57,9 +57,8 @@ func TestHumanContainsFindingDetail(t *testing.T) {
 // TestHumanShowsSkippedFindingsWithoutCountingAsGap covers the non-strict
 // (default) side of the --fail-on-skip fix: a StatusSkipped result's
 // discarded SkippedFindings must still be visible to a human reading the
-// report, but must never turn "No defensive gaps found" into a gap, since
-// that promotion only happens under --fail-on-skip (in cmd/mockryx), not in
-// this package.
+// report, but must never turn the summary into a gap, since that promotion
+// only happens under --fail-on-skip (in cmd/mockryx), not in this package.
 func TestHumanShowsSkippedFindingsWithoutCountingAsGap(t *testing.T) {
 	r := Report{Results: []runner.Result{
 		{
@@ -79,8 +78,8 @@ func TestHumanShowsSkippedFindingsWithoutCountingAsGap(t *testing.T) {
 	var buf bytes.Buffer
 	Human(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "No defensive gaps found") {
-		t.Errorf("a SkippedFindings-only report must still read as no gaps found:\n%s", out)
+	if !strings.Contains(out, "No guardrail was exercised: every scenario was skipped as not configured.") {
+		t.Errorf("a SkippedFindings-only report must say nothing was exercised, not the all-clear line:\n%s", out)
 	}
 	if !strings.Contains(out, "never denied") {
 		t.Errorf("Human output should still surface the discarded mismatch detail:\n%s", out)
@@ -217,5 +216,56 @@ func TestJSONCarriesKindExpectAndGotOnlyWhenSet(t *testing.T) {
 		if !strings.Contains(buf.String(), key) {
 			t.Errorf("JSON missing %s:\n%s", key, buf.String())
 		}
+	}
+}
+
+// A run whose every scenario was skipped as not configured exercised no
+// guardrail, so it must not print the all-clear line. The skipped mismatches
+// still print below the summary, and none of this turns them into a gap.
+func TestHumanSaysNothingWasExercisedWhenEveryScenarioIsSkipped(t *testing.T) {
+	r := Report{Results: []runner.Result{
+		{Scenario: "wardryx-denied-tool", Status: runner.StatusSkipped},
+		{Scenario: "dlp-secret-leak", Status: runner.StatusSkipped},
+	}}
+	var buf bytes.Buffer
+	Human(&buf, r)
+	out := buf.String()
+	const want = "No guardrail was exercised: every scenario was skipped as not configured."
+	if !strings.Contains(out, want) {
+		t.Errorf("an all-skipped run must say nothing was exercised, want %q:\n%s", want, out)
+	}
+	if strings.Contains(out, "Every exercised guardrail held") {
+		t.Errorf("an all-skipped run must not print the all-clear line:\n%s", out)
+	}
+}
+
+func TestHumanSaysNothingWasExercisedWhenNoScenarioRan(t *testing.T) {
+	var buf bytes.Buffer
+	Human(&buf, Report{})
+	out := buf.String()
+	const want = "No guardrail was exercised: no scenario ran."
+	if !strings.Contains(out, want) {
+		t.Errorf("a zero-scenario report must say nothing was exercised, want %q:\n%s", want, out)
+	}
+	if strings.Contains(out, "Every exercised guardrail held") {
+		t.Errorf("a zero-scenario report must not print the all-clear line:\n%s", out)
+	}
+}
+
+// One passed scenario means a guardrail was exercised and held, so the
+// wording a run has always printed stays as it is, even beside a skip.
+func TestHumanKeepsTodaysWordingWhenAScenarioPassed(t *testing.T) {
+	r := Report{Results: []runner.Result{
+		{Scenario: "runaway-budget", Status: runner.StatusPassed},
+		{Scenario: "wardryx-denied-tool", Status: runner.StatusSkipped},
+	}}
+	var buf bytes.Buffer
+	Human(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "No defensive gaps found. Every exercised guardrail held.") {
+		t.Errorf("a run with a passed scenario and no gaps keeps today's wording:\n%s", out)
+	}
+	if strings.Contains(out, "No guardrail was exercised") {
+		t.Errorf("a run that exercised a guardrail must not say nothing was:\n%s", out)
 	}
 }

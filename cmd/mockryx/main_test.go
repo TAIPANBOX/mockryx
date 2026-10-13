@@ -739,3 +739,41 @@ func TestRunCommandBrokerSettingIsIgnoredWithoutAnMCPStep(t *testing.T) {
 		t.Errorf("an unreachable broker refused a run with no mcp step: %v", runErr)
 	}
 }
+
+const silentWardryxScenario = `
+name: wardryx-silent
+requires: wardryx
+steps:
+  - name: request
+    request:
+      model: claude-haiku
+      messages:
+        - role: user
+          content: "hi"
+    expect:
+      status: 403
+      header:
+        x-fuse-wardryx: deny
+`
+
+// A gateway that never stamps x-fuse-wardryx exercises no guardrail. A skip is
+// not a gap, so the run exits 0, and it must say that nothing was exercised
+// rather than print the all-clear line.
+func TestRunCommandSaysNothingWasExercisedWhenTheGuardrailIsNotConfigured(t *testing.T) {
+	srv := breakerStub(t, http.StatusOK)
+	dir := t.TempDir()
+	writeScenario(t, dir, "wardryx-silent.yaml", silentWardryxScenario)
+
+	out := captureStdout(t, func() {
+		if err := runRun([]string{"--gateway", srv.URL, dir}); err != nil {
+			t.Fatalf("runRun: %v (a skipped scenario is not a gap, so the run must exit 0)", err)
+		}
+	})
+	const want = "No guardrail was exercised: every scenario was skipped as not configured."
+	if !strings.Contains(out, want) {
+		t.Errorf("a run where every guardrail is not configured must say so, want %q:\n%s", want, out)
+	}
+	if strings.Contains(out, "No defensive gaps") {
+		t.Errorf("a run that exercised no guardrail must not print the all-clear line:\n%s", out)
+	}
+}
