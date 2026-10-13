@@ -19,7 +19,7 @@
 # no `:main`: this is a plane of a governance stack, and "which build is
 # running" has to have an answer that does not change under the operator. A tag
 # that moves is a deployment whose contents change without a rollout anybody
-# recorded (Yurii, 2026-08-02).
+# recorded. @decided 2026-08-02: immutable version tags only, so no moving tag is published.
 #
 # Publishing runs on a tag, never on a merge: publishing on every push to main
 # would mint artifacts nobody chose to release. The build jobs also run on a
