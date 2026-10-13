@@ -52,7 +52,7 @@ zero through. This is `wardryx-denied-tool`'s property under a failure mode no d
 ## What this does not cover
 
 This page is a record of two campaigns, and it stays true about the moment it describes rather than
-about the repository today. Fifteen scenarios ship now (twelve in `scenarios/`, the two broker drills in `scenarios/mcp/`, and the
+about the repository today. Sixteen scenarios ship now (thirteen in `scenarios/`, the two broker drills in `scenarios/mcp/`, and the
 game-day drill), and the two campaigns above exercised three of them. `on-behalf-of-forged-chain`, `approval-required`,
 `verdryx-quality-drift` and `injected-page` were written afterwards and neither campaign included
 them, nor did they include `token-flood` and `pii-in-prompt`, which came later still, nor
