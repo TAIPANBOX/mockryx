@@ -830,7 +830,7 @@ or unwritable events path never blocks a run.
   per step invocation, so unrelated steps and separate `mockryx run`
   invocations never collide.
 - **`agent-stack-go` is a tagged dependency.** `go.mod` requires
-  `github.com/TAIPANBOX/agent-stack-go v1.1.0` straight from the module
+  `github.com/TAIPANBOX/agent-stack-go v1.3.0` straight from the module
   proxy: no `replace`, no local checkout. `.github/workflows/ci.yml` does a
   single `actions/checkout` per job, the same as any other Go module.
 - **YAML is the one dependency beyond `agent-stack-go`.** `gopkg.in/yaml.v3`
@@ -862,7 +862,7 @@ or unwritable events path never blocks a run.
 - [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.ChainedWriter` (SPEC 6.5 prev_hash chain), opt-in (`MOCKRYX_EVENTS_PATH`)
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
 - [x] thirteen shipped example scenarios in `scenarios/`: `runaway-budget` and `token-flood` (core Breaker: spend accumulated over a loop, and one call refused at reservation), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` and `pii-in-prompt` (DLP: a secret, and personal data when PII blocking is on), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction), `injected-page` and `egress-after-untrusted-read` (the agent firewall, taint labels not wording, through tool history and a `tool_check`), `reaction-chain-reaches-heraldyx` (Wardryx's in-path deny, its own off-path record, and heraldyx's actual notification, all three), `declared-tool-poisoning` (a poisoned tool description in a request's `tools[]`, read by the firewall through TokenFuse invariant 93, first released in TokenFuse v1.11.0), `allow-list-renamed-tool` (Wardryx's allow-list: a renamed tool is refused, not taken for the listed one); plus one game-day drill outside `scenarios/`, `scenarios/game-day/provider-outage.yaml`, for a deliberately unreachable upstream, and the two broker drills in `scenarios/mcp/`, `mcp-secret-in-arguments` and `mcp-pii-in-arguments`, which need `--mcp-broker`
-- [x] `agent-stack-go` v1.1.0 pinned dependency, no local `replace`
+- [x] `agent-stack-go` v1.3.0 pinned dependency, no local `replace`
 - [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`); exercised by `scripts/selftest.sh` both ways (a matching event found, a missing one reported as a `Finding`), and shipped in `verdryx-quality-drift.yaml`
 - [ ] Later: additional built-in scenario packs, as new guardrails ship in TokenFuse / Wardryx
 
