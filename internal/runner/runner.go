@@ -159,8 +159,15 @@ func Run(s scenario.Scenario, gatewayURL, apiKey string, watcher Watcher) Result
 // refuses to start in that state, so reaching it means a caller skipped that
 // check, and the loud outcome is the right one.
 func RunWithBroker(s scenario.Scenario, gatewayURL, brokerURL, apiKey string, watcher Watcher) Result {
+	return RunWithIdentity(s, gatewayURL, brokerURL, apiKey, Identity{}, watcher)
+}
+
+// RunWithIdentity is RunWithBroker with the operator's Identity applied: the
+// client key every gateway request presents, and the agent id that replaces
+// each scenario's own. With a zero Identity it is RunWithBroker exactly.
+func RunWithIdentity(s scenario.Scenario, gatewayURL, brokerURL, apiKey string, id Identity, watcher Watcher) Result {
 	client := &http.Client{Timeout: httpTimeout}
-	tgt := target{gateway: gatewayURL, broker: brokerURL, apiKey: apiKey}
+	tgt := target{gateway: gatewayURL, broker: brokerURL, apiKey: apiKey, clientKey: id.ClientKey, agentID: id.AgentID}
 
 	res := Result{Scenario: s.Name}
 	var findings []Finding
@@ -191,7 +198,7 @@ func RunWithBroker(s scenario.Scenario, gatewayURL, brokerURL, apiKey string, wa
 		if out.signalSeen {
 			signalSeen = true
 		}
-		if out.transportError || out.watcherError || out.unreadable {
+		if out.transportError || out.watcherError || out.unreadable || out.refused {
 			// A watcher read error (e.g. permission denied) is an
 			// operational problem, not a "guardrail absent" situation --
 			// same treatment as a transport error, never confused with
@@ -203,7 +210,13 @@ func RunWithBroker(s scenario.Scenario, gatewayURL, brokerURL, apiKey string, wa
 		}
 		if out.finding != nil {
 			out.finding.Scenario = s.Name
+			redactFinding(out.finding, id.ClientKey)
 			findings = append(findings, *out.finding)
+		}
+		if out.refused {
+			// Every later step would be refused the same way, so one refusal ends
+			// the scenario: the gateway has said nothing about any guardrail.
+			break
 		}
 	}
 
@@ -227,9 +240,11 @@ func RunWithBroker(s scenario.Scenario, gatewayURL, brokerURL, apiKey string, wa
 // talks to, the MCP broker an mcp step talks to (empty unless the operator
 // passed --mcp-broker), and the key sent to the gateway.
 type target struct {
-	gateway string
-	broker  string
-	apiKey  string
+	gateway   string
+	broker    string
+	apiKey    string
+	clientKey string
+	agentID   string
 }
 
 // stepOutcome is runStep's internal bookkeeping, folded into Result by Run.
@@ -241,7 +256,10 @@ type stepOutcome struct {
 	watcherError    bool
 	// unreadable: the reply could not be read as the protocol the step speaks.
 	unreadable bool
-	finding    *Finding
+	// refused: the gateway refused the drill's credential, so nothing it said
+	// is an answer about a guardrail.
+	refused bool
+	finding *Finding
 }
 
 // probeResult is what one attempt of one step observed, whatever the step's
@@ -267,6 +285,8 @@ type probeResult struct {
 	// unreadable, when set, says why an answer could not be read as the
 	// protocol at all.
 	unreadable string
+	// refusal, when set, is the Finding's detail for a refused credential.
+	refusal string
 }
 
 // runStep sends step's request up to step.Repeat times, reusing one run_id
@@ -306,6 +326,9 @@ func runStep(client *http.Client, watcher Watcher, tgt target, requires, runID s
 	if headers.RunID == "" {
 		headers.RunID = runID
 	}
+	if tgt.agentID != "" {
+		headers.AgentID = tgt.agentID
+	}
 
 	if kind == scenario.KindMCP && tgt.broker == "" {
 		out.unreadable = true
@@ -331,6 +354,11 @@ func runStep(client *http.Client, watcher Watcher, tgt target, requires, runID s
 		if p.unreadable != "" {
 			out.unreadable = true
 			out.finding = newFinding(kind, step, attempt, p, p.unreadable)
+			return out
+		}
+		if p.refusal != "" {
+			out.refused = true
+			out.finding = newFinding(kind, step, attempt, p, p.refusal)
 			return out
 		}
 		out.budgetBurnedUSD += costUSD(p.hdr)
@@ -449,7 +477,7 @@ func probe(client *http.Client, tgt target, step scenario.Step, kind scenario.St
 	case scenario.KindMCP:
 		return probeMCP(client, tgt, step, h, attempt)
 	}
-	status, hdr, err := send(client, tgt.gateway, tgt.apiKey, step.Request, h)
+	status, hdr, body, err := send(client, tgt.gateway, tgt.apiKey, tgt.clientKey, step.Request, h)
 	if err != nil {
 		return probeResult{err: err}
 	}
@@ -458,6 +486,7 @@ func probe(client *http.Client, tgt target, step scenario.Step, kind scenario.St
 		hdr:     hdr,
 		matched: matches(step.Expect, status, hdr),
 		signal:  signalHeader != "" && hdr.Get(signalHeader) != "",
+		refusal: credentialRefusal(status, body, tgt.clientKey, h.AgentID),
 	}
 }
 
@@ -488,6 +517,7 @@ func probeToolCheck(client *http.Client, tgt target, step scenario.Step, h scena
 	}
 	req.Header.Set("content-type", "application/json")
 	setHeader(req, "x-api-key", tgt.apiKey)
+	setHeader(req, "x-fuse-key", tgt.clientKey)
 	setHeader(req, "x-fuse-agent-id", h.AgentID)
 
 	resp, err := client.Do(req)
@@ -498,6 +528,10 @@ func probeToolCheck(client *http.Client, tgt target, step scenario.Step, h scena
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxReply))
 
 	p := probeResult{status: resp.StatusCode, hdr: resp.Header}
+	if reason := credentialRefusal(resp.StatusCode, raw, tgt.clientKey, h.AgentID); reason != "" {
+		p.refusal = reason
+		return p
+	}
 	var ans struct {
 		Decision   string  `json:"decision"`
 		Governed   bool    `json:"governed"`
@@ -551,6 +585,9 @@ func probeMCP(client *http.Client, tgt target, step scenario.Step, h scenario.He
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("accept", "application/json, text/event-stream")
+	// The gateway's client key is deliberately not sent here: the broker is a
+	// different service with its own door, and a key sent to it would be a key
+	// handed to something the operator did not give it to.
 	setHeader(req, "x-fuse-agent-id", h.AgentID)
 	setHeader(req, "x-fuse-run-id", h.RunID)
 
@@ -633,21 +670,24 @@ func snippet(b []byte) string {
 	return s
 }
 
-// send POSTs one crafted request to {gatewayURL}/v1/messages and returns
-// the response status and headers.
-func send(client *http.Client, gatewayURL, apiKey string, req scenario.Request, h scenario.Headers) (int, http.Header, error) {
+// send POSTs one crafted request to {gatewayURL}/v1/messages and returns the
+// response status, headers and (up to maxReply bytes of) body. clientKey, when
+// set, is sent as x-fuse-key; this is the only request that carries it besides
+// tool_check, and never the MCP broker's.
+func send(client *http.Client, gatewayURL, apiKey, clientKey string, req scenario.Request, h scenario.Headers) (int, http.Header, []byte, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
-		return 0, nil, fmt.Errorf("encode request: %w", err)
+		return 0, nil, nil, fmt.Errorf("encode request: %w", err)
 	}
 
 	endpoint := strings.TrimRight(gatewayURL, "/") + "/v1/messages"
 	httpReq, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return 0, nil, fmt.Errorf("build request: %w", err)
+		return 0, nil, nil, fmt.Errorf("build request: %w", err)
 	}
 	httpReq.Header.Set("content-type", "application/json")
 	setHeader(httpReq, "x-api-key", apiKey)
+	setHeader(httpReq, "x-fuse-key", clientKey)
 	setHeader(httpReq, "x-fuse-run-id", h.RunID)
 	setHeader(httpReq, "x-fuse-agent-id", h.AgentID)
 	setHeader(httpReq, "x-fuse-budget-usd", h.BudgetUSD)
@@ -658,12 +698,52 @@ func send(client *http.Client, gatewayURL, apiKey string, req scenario.Request, 
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return 0, nil, fmt.Errorf("send request: %w", err)
+		return 0, nil, nil, fmt.Errorf("send request: %w", err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body) // drain so the connection can be reused
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxReply)) // read in full so the connection can be reused
 
-	return resp.StatusCode, resp.Header, nil
+	return resp.StatusCode, resp.Header, raw, nil
+}
+
+// credentialRefusal says why the gateway refused the drill's credential, or ""
+// when it did not. A 401 is the gateway not knowing the key. A 403 that names
+// identity_mismatch is the key speaking as an agent id outside its binding.
+// Either is a failure to authenticate, not an answer about a guardrail: left
+// alone, a 403 would pass a deny expectation, and a 401 on a scenario that
+// declares requires would read as a guardrail that is not configured, exit 0.
+func credentialRefusal(status int, body []byte, clientKey, agentID string) string {
+	switch {
+	case status == http.StatusUnauthorized && clientKey == "":
+		return "the gateway refused the drill's credential (HTTP 401): this run sent no client key; give one with --client-key-file or $MOCKRYX_CLIENT_KEY_FILE"
+	case status == http.StatusUnauthorized:
+		return "the gateway refused the drill's credential (HTTP 401): the client key sent was not accepted"
+	case status == http.StatusForbidden && bytes.Contains(body, []byte("identity_mismatch")):
+		return fmt.Sprintf("the gateway refused the drill's credential (HTTP 403, identity_mismatch): agent id %q is outside the namespace this key may speak as; set --agent-id or $MOCKRYX_AGENT_ID", agentID)
+	}
+	return ""
+}
+
+// redactMark replaces the client key wherever it would otherwise be written.
+const redactMark = "***"
+
+// redactFinding removes key from every text a Finding carries, so a gateway that
+// echoes the key back in a reply cannot put it in a report or an event. The
+// key is the secret; nothing else is changed.
+func redactFinding(f *Finding, key string) {
+	if key == "" {
+		return
+	}
+	f.Detail = strings.ReplaceAll(f.Detail, key, redactMark)
+	f.Expect = strings.ReplaceAll(f.Expect, key, redactMark)
+	f.Got = strings.ReplaceAll(f.Got, key, redactMark)
+	if f.GotHeaders != nil {
+		clean := make(map[string]string, len(f.GotHeaders))
+		for k, v := range f.GotHeaders {
+			clean[strings.ReplaceAll(k, key, redactMark)] = strings.ReplaceAll(v, key, redactMark)
+		}
+		f.GotHeaders = clean
+	}
 }
 
 func setHeader(r *http.Request, key, value string) {
@@ -722,4 +802,12 @@ func flatten(h http.Header) map[string]string {
 // HTTP-header-friendly token.
 func sanitizeForID(name string) string {
 	return strings.ReplaceAll(name, " ", "-")
+}
+
+// Identity is what a run presents to the gateway on top of each scenario's own
+// headers. ClientKey is sent as x-fuse-key to the gateway and to no other
+// service; AgentID, when set, replaces the agent id every step sends.
+type Identity struct {
+	ClientKey string
+	AgentID   string
 }

@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
@@ -31,17 +32,27 @@ type Config struct {
 	// from here and from --mcp-broker and from nowhere else: no scenario
 	// file can carry it (CLAUDE.md invariant 6).
 	MCPBroker string
+	// ClientKey is the gateway's x-fuse-key secret, from MOCKRYX_CLIENT_KEY.
+	ClientKey string
+	// ClientKeyFile is a path to a file holding the client key, from
+	// MOCKRYX_CLIENT_KEY_FILE. A file keeps the secret out of the environment.
+	ClientKeyFile string
+	// AgentID, from MOCKRYX_AGENT_ID, replaces the agent id every step sends.
+	AgentID string
 }
 
 // FromEnv reads MOCKRYX_GATEWAY, MOCKRYX_EVENTS_PATH, MOCKRYX_API_KEY,
 // MOCKRYX_WATCH_EVENTS, and MOCKRYX_MCP_BROKER.
 func FromEnv() Config {
 	return Config{
-		Gateway:     os.Getenv("MOCKRYX_GATEWAY"),
-		EventsPath:  os.Getenv("MOCKRYX_EVENTS_PATH"),
-		APIKey:      os.Getenv("MOCKRYX_API_KEY"),
-		WatchEvents: splitNonEmpty(os.Getenv("MOCKRYX_WATCH_EVENTS")),
-		MCPBroker:   os.Getenv("MOCKRYX_MCP_BROKER"),
+		Gateway:       os.Getenv("MOCKRYX_GATEWAY"),
+		EventsPath:    os.Getenv("MOCKRYX_EVENTS_PATH"),
+		APIKey:        os.Getenv("MOCKRYX_API_KEY"),
+		WatchEvents:   splitNonEmpty(os.Getenv("MOCKRYX_WATCH_EVENTS")),
+		MCPBroker:     os.Getenv("MOCKRYX_MCP_BROKER"),
+		ClientKey:     os.Getenv("MOCKRYX_CLIENT_KEY"),
+		ClientKeyFile: os.Getenv("MOCKRYX_CLIENT_KEY_FILE"),
+		AgentID:       os.Getenv("MOCKRYX_AGENT_ID"),
 	}
 }
 
@@ -58,4 +69,23 @@ func splitNonEmpty(s string) []string {
 		}
 	}
 	return out
+}
+
+// ReadClientKeyFile reads the gateway client key from path and returns it
+// without the newline a file ends with. The file must hold exactly one key on
+// one line. Errors name the path and never the contents: the contents are the
+// secret, and a refused file is exactly the one whose contents are wrong.
+func ReadClientKeyFile(path string) (string, error) {
+	b, err := os.ReadFile(path) // #nosec G304 -- path is an operator-supplied setting (--client-key-file or $MOCKRYX_CLIENT_KEY_FILE), not untrusted input
+	if err != nil {
+		return "", fmt.Errorf("read client key file: %w", err)
+	}
+	key := strings.TrimSpace(string(b))
+	if key == "" {
+		return "", fmt.Errorf("client key file %s is empty", path)
+	}
+	if strings.ContainsAny(key, " \t\r\n") {
+		return "", fmt.Errorf("client key file %s must hold one key on one line, with no spaces", path)
+	}
+	return key, nil
 }

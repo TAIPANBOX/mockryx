@@ -386,6 +386,28 @@ run_case "selftest: a tree that does not build measured nothing" fail \
 	"$(py 'edit("cmd/mockryx/main.go", "package main", "package main\n\nvar _ = undefinedOnPurpose")')" \
 	"measured nothing"
 
+# features-are-bound holds each feature scenario to a test that exists, both ways,
+# and refuses to report success when it finds no scenario at all.
+run_case "features-are-bound: a scenario with no test bound to it" fail \
+	'./scripts/features-are-bound.sh' \
+	'import re; p = "features/client-key.feature"; s = open(p).read(); t = "  @bound:TestMessagesStepSendsClientKeyAsXFuseKey\n"; assert t in s, "pattern not found"; open(p, "w").write(s.replace(t, "", 1))' \
+	"has no @bound tag"
+run_case "features-are-bound: a binding to a test that does not exist" fail \
+	'./scripts/features-are-bound.sh' \
+	'import re; p = "features/client-key.feature"; s = open(p).read(); t = "@bound:TestAgentIDWithoutOverrideKeepsTheScenarioAgentID"; assert t in s, "pattern not found"; open(p, "w").write(s.replace(t, t + "Renamed", 1))' \
+	"points at nothing"
+run_case "features-are-bound: a tag with no scenario below it" fail \
+	'./scripts/features-are-bound.sh' \
+	'p = "features/client-key.feature"; s = open(p).read(); t = "  @bound:TestFindingsNeverCarryTheClientKey\n"; assert t in s, "pattern not found"; open(p, "w").write(s.replace(t, t + t, 1))' \
+	"no scenario below it"
+run_case "features-are-bound: a second scenario bound to a real test in another package" pass \
+	'./scripts/features-are-bound.sh' \
+	'p = "features/client-key.feature"; s = open(p).read(); a = "    Then the run exits as a usage error, so the key never sits in the process arguments\n"; assert a in s, "pattern not found"; extra = "\n  @bound:TestWaitTimeBoundary\n  Scenario: a second statement of the time window\n    Given a line stamped inside the window\n    When the watcher waits\n    Then the line is accepted\n"; open(p, "w").write(s.replace(a, a + extra, 1))'
+run_case "features-are-bound: no features left to read measured nothing" fail \
+	'./scripts/features-are-bound.sh' \
+	"import shutil; shutil.move('features', 'features-away')" \
+	"measured nothing"
+
 echo
 if [ -n "$(git status --porcelain)" ]; then
 	printf 'FAIL: this script left the tree dirty, so it cannot be trusted about anything above\n'

@@ -122,6 +122,8 @@ func runRun(args []string) error {
 	var (
 		gatewayFlag = fs.String("gateway", "", "gateway base URL to rehearse against (default: $MOCKRYX_GATEWAY)")
 		apiKeyFlag  = fs.String("api-key", "", "x-api-key sent with every crafted request (default: $MOCKRYX_API_KEY)")
+		keyFileFlag = fs.String("client-key-file", "", "file holding the gateway client key, sent as x-fuse-key to the gateway (default: $MOCKRYX_CLIENT_KEY_FILE); the key is read from the file, never from a flag value, so it stays off argv")
+		agentIDFlag = fs.String("agent-id", "", "agent id every request presents, replacing each scenario's own (default: $MOCKRYX_AGENT_ID); under a client key it must be inside that key's namespace")
 		brokerFlag  = fs.String("mcp-broker", "", "MCP broker base URL that mcp steps are sent to (default: $MOCKRYX_MCP_BROKER); required only if a loaded scenario has an mcp step")
 		eventsFlag  = fs.String("events", "", "path to append sim_run/sim_finding/blast_radius_measured events to (default: $MOCKRYX_EVENTS_PATH)")
 		watchFlag   watchPathsFlag
@@ -150,6 +152,11 @@ func runRun(args []string) error {
 		return fmt.Errorf("no gateway configured: set --gateway or $MOCKRYX_GATEWAY")
 	}
 	apiKey := firstNonEmpty(*apiKeyFlag, env.APIKey)
+	clientKey, err := resolveClientKey(firstNonEmpty(*keyFileFlag, env.ClientKeyFile), env.ClientKey)
+	if err != nil {
+		return err
+	}
+	identity := runner.Identity{ClientKey: clientKey, AgentID: firstNonEmpty(*agentIDFlag, env.AgentID)}
 	mcpBroker := firstNonEmpty(*brokerFlag, env.MCPBroker)
 	eventsPath := firstNonEmpty(*eventsFlag, env.EventsPath)
 	watchPaths := []string(watchFlag)
@@ -214,7 +221,7 @@ func runRun(args []string) error {
 		rep.MCPBroker = mcpBroker
 	}
 	for _, s := range scenarios {
-		res := runner.RunWithBroker(s, gateway, mcpBroker, apiKey, watcher)
+		res := runner.RunWithIdentity(s, gateway, mcpBroker, apiKey, identity, watcher)
 		rep.Results = append(rep.Results, res)
 		for _, f := range res.Findings {
 			_ = emitter.SimFinding(events.SimFindingInput{
@@ -347,6 +354,21 @@ func parseArgsAnyOrder(fs *flag.FlagSet, args []string) ([]string, error) {
 		positionals = append(positionals, rest[0])
 		args = rest[1:]
 	}
+}
+
+// resolveClientKey returns the gateway client key from the one place the
+// operator gave it: a key file, or the MOCKRYX_CLIENT_KEY value. Both at once is
+// refused, because the two could disagree and the run would not know which
+// one it was holding. A key file that cannot be read is refused before any
+// request is sent, so a run cannot start unkeyed by accident.
+func resolveClientKey(keyFile, envValue string) (string, error) {
+	switch {
+	case keyFile != "" && envValue != "":
+		return "", fmt.Errorf("give the client key once: as a file (--client-key-file or $MOCKRYX_CLIENT_KEY_FILE) or as $MOCKRYX_CLIENT_KEY, not both")
+	case keyFile != "":
+		return config.ReadClientKeyFile(keyFile)
+	}
+	return envValue, nil
 }
 
 func firstNonEmpty(vals ...string) string {
