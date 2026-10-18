@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-169-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-195-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-1%20(mvp)-success.svg)
 
@@ -355,7 +355,8 @@ no header to read, and each says what its signal is:
 A reply that cannot be read as the protocol at all (check-tool-call answering
 `404` or with no decision, a broker answering something that is not JSON-RPC)
 is a `Finding`, never a skip: it says nothing about whether the guardrail is
-configured.
+configured. A refused credential is a `Finding` for the same reason, see
+[The client key and the agent id](#the-client-key-and-the-agent-id).
 
 A scenario with no `requires` (the budget Breaker is a core, always-on
 gateway feature, so `runaway-budget` and `token-flood` have none) can never be
@@ -375,6 +376,36 @@ an ordinary gap. The report still honestly shows `skipped_not_configured` as
 the status mockryx actually observed; `--fail-on-skip` only changes whether
 that status is allowed to pass CI, not what happened. Off by default, so a
 plain `mockryx run` is unaffected either way.
+
+### The client key and the agent id
+
+A gateway that requires a client key refuses a call that carries none with
+`401`, and it refuses an agent id outside the key's binding with `403` and
+`identity_mismatch`. Two optional settings let the drill get past both:
+
+- **`--client-key-file PATH`** or **`$MOCKRYX_CLIENT_KEY_FILE`**: a file holding
+  the key on one line. mockryx sends it as `x-fuse-key` on every `messages` and
+  `tool_check` request. It is never sent to the MCP broker.
+- **`$MOCKRYX_CLIENT_KEY`**: the same key as a value. Give the key one way only:
+  both at once is a usage error, exit `2`. There is no flag that takes the key
+  value, so the key never sits in the process arguments.
+- **`--agent-id ID`** or **`$MOCKRYX_AGENT_ID`**: sent as `x-fuse-agent-id` in
+  place of each scenario's own agent id, on all three step kinds. Use it to put
+  the drill under the namespace the key is bound to, for example
+  `agent://<trust-domain>/agents/mockryx`. A policy that matches a scenario's own
+  agent id sees the override instead, so a drill that depends on one of those
+  ids should not be run under an override.
+
+The key is never written to a report, an event or the terminal. If a gateway
+echoes it back in a reply, the copy is masked as `***`.
+
+A refused credential is never a guardrail result. A `401`, or a `403` that
+names `identity_mismatch`, makes the scenario a `Finding` whose detail reads
+"the gateway refused the drill's credential", and the run stops at that first
+refusal. It is not read as "not configured", so it cannot exit `0`, and a `403`
+cannot pass a `deny` expectation. A scenario that declares `requires` and is
+refused for its credential exits `1`. Before this change the same run exited
+`0` as skipped. The detail names the setting to give when no key was sent.
 
 ---
 
@@ -755,6 +786,8 @@ export MOCKRYX_GATEWAY=http://127.0.0.1:8080
 export MOCKRYX_API_KEY=...          # optional, sent as x-api-key
 export MOCKRYX_MCP_BROKER=http://127.0.0.1:4200   # only needed when a loaded scenario has an mcp step
 export MOCKRYX_EVENTS_PATH=out/events.ndjson   # optional, opt-in telemetry
+export MOCKRYX_CLIENT_KEY_FILE=/run/secrets/mockryx-client-key   # only for a gateway that requires a client key
+export MOCKRYX_AGENT_ID=agent://example.org/agents/mockryx       # optional, the id that key is bound to
 ./bin/mockryx run ./scenarios
 
 # Save a report, then re-render it later without re-running anything:

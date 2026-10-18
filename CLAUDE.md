@@ -56,6 +56,7 @@ go build ./...
 ./scripts/selftest.sh
 ./scripts/readme-numbers.sh
 ./scripts/reproducible-build.sh
+./scripts/features-are-bound.sh
 ./scripts/gates-have-teeth.sh   # invariant 9; needs a clean tree, run it after committing
 ```
 
@@ -170,8 +171,8 @@ an absent invariant.
    mutations that changed no bytes, and three of the five had been verified by
    hand against the same gate minutes earlier. So every mutation asserts it
    applied: a case whose edit changed nothing is a failure here, not a pass.
-   *(gate: `scripts/gates-have-teeth.sh`, 26 cases: thirteen real faults each
-   gate must catch, five non-faults they must not, and eight subjects taken away
+   *(gate: `scripts/gates-have-teeth.sh`, 31 cases: sixteen real faults each
+   gate must catch, six non-faults they must not, and nine subjects taken away
    entirely, where the gate must say it measured nothing rather than report OK.
    `selftest.sh` gets few cases rather than many because it builds the binary
    and stands up stub gateways; it gets the property it names itself, that a
@@ -269,6 +270,24 @@ an absent invariant.
     `scripts/selftest.sh`, which runs both new kinds against a stub that
     announces and holds nothing and requires every drill to fail or skip, and
     against a stub that holds and requires every drill to pass)*
+13. **The client key goes to the gateway and nowhere else, and never into an
+    artifact.** `x-fuse-key` is sent on the gateway's `messages` and `tool_check`
+    requests only, never to the MCP broker. It is read from a file or from
+    `$MOCKRYX_CLIENT_KEY`, never from a flag value, so it stays off argv. Every
+    text a Finding carries has the key masked, so a gateway that echoes it cannot
+    put it in a report or an event. *(test: `TestMCPStepNeverSendsClientKey`,
+    `TestMessagesStepSendsClientKeyAsXFuseKey`, `TestToolCheckStepSendsClientKeyAsXFuseKey`,
+    `TestFindingsNeverCarryTheClientKey`, `TestRunCommandHasNoFlagThatTakesTheKeyValue`,
+    `TestRunCommandKeyNeverReachesTheReport`, `TestReadClientKeyFileRefusesAFileThatIsNotOneKey`,
+    which checks the error does not repeat the file; the scenarios that name these
+    are held to them by `scripts/features-are-bound.sh`)*
+14. **A refused credential is never a guardrail's answer.** A `401` from the
+    gateway, or a `403` naming `identity_mismatch`, makes the step a Finding that
+    says the gateway refused the drill's credential, and ends the scenario. It is
+    never a pass and never a skip, so it cannot exit `0` and cannot satisfy a
+    `deny` expectation. *(test: `TestUnauthorizedGatewayReplyIsRefusedCredentialNotGuardrail`,
+    `TestIdentityMismatchReplyIsRefusedCredentialNotGuardrail`, `TestRefusedCredentialStopsTheScenario`,
+    `TestPlainForbiddenWithNoSignalStaysASkip`, `TestRunCommandRefusedCredentialIsAFindingNotASkip`)*
 
 ## Decisions that have no gate yet
 

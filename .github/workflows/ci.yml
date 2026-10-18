@@ -45,6 +45,8 @@ jobs:
         run: ./scripts/readme-numbers.sh
       - name: the drills can see a missing guardrail
         run: ./scripts/selftest.sh
+      - name: every feature scenario is bound to a test that exists
+        run: ./scripts/features-are-bound.sh
 
       # You are asked to point an adversarial tool at your own production path
       # and believe the result, so the tool itself is what a careful reader pins

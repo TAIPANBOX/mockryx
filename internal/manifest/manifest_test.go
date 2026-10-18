@@ -266,10 +266,11 @@ func TestEveryEnvironmentVariableThisRepositoryReadsIsDeclaredAndTheReverse(t *t
 // is an error shown to the operator. So the difference between "I would not
 // start" and "I ran and it went badly" is a cross-repository interface.
 //
-// Five refusals, all the same code, and the last three are the ones that
+// Six refusals, all the same code, and the last four are the ones that
 // matter: they still refuse when a gateway IS configured, which is what makes
 // this fail-before-half-the-job rather than merely fail-fast. The fourth and
-// fifth arrived with the mcp step kind (2026-10-12).
+// fifth arrived with the mcp step kind (2026-10-12); the sixth, an unreadable
+// client key file, with the client key (2026-10-18).
 func TestTheExitCodeContractOtherRepositoriesReadIsTheDeclaredOne(t *testing.T) {
 	if testing.Short() {
 		t.Skip("starts processes")
@@ -332,6 +333,18 @@ func TestTheExitCodeContractOtherRepositoriesReadIsTheDeclaredOne(t *testing.T) 
 		}
 		if strings.Contains(out, "scenario(s) against") || !strings.Contains(out, "unreachable") {
 			t.Errorf("it began the drill before refusing, or did not say the broker is unreachable:\n%s", out)
+		}
+
+		// 6. A client key file that cannot be read, with the gateway configured.
+		// It is refused before the first request, so a run cannot start unkeyed
+		// by accident and then read the gateway's 401 as a result.
+		env = []string{"MOCKRYX_GATEWAY=http://127.0.0.1:1/unreachable", "MOCKRYX_CLIENT_KEY_FILE=" + filepath.Join(t.TempDir(), "absent")}
+		got, out = status(t, bin, env, sub, filepath.Join(r, "scenarios"))
+		if got != want {
+			t.Errorf("an unreadable client key file exited %d; components.json says %d\n%s", got, want, out)
+		}
+		if strings.Contains(out, "scenario(s) against") || !strings.Contains(out, "client key file") {
+			t.Errorf("it began the drill before refusing, or did not name the key file:\n%s", out)
 		}
 	}
 
