@@ -76,7 +76,7 @@ func splitNonEmpty(s string) []string {
 // one line. Errors name the path and never the contents: the contents are the
 // secret, and a refused file is exactly the one whose contents are wrong.
 func ReadClientKeyFile(path string) (string, error) {
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) // #nosec G304 -- path is an operator-supplied setting (--client-key-file or $MOCKRYX_CLIENT_KEY_FILE), not untrusted input
 	if err != nil {
 		return "", fmt.Errorf("read client key file: %w", err)
 	}
