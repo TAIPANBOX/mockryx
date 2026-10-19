@@ -3,7 +3,9 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"runtime"
 	"strings"
 )
 
@@ -92,9 +94,41 @@ func ReadAPIKeyFile(path string) (string, error) {
 // readKeyFile holds the one set of rules both key files share. what names the
 // key in its errors.
 func readKeyFile(path, what string) (string, error) {
-	b, err := os.ReadFile(path) // #nosec G304 -- path is an operator-supplied setting (a --*-file flag or its environment variable), not untrusted input
+	return readKeyFileFor(path, what, runtime.GOOS)
+}
+
+// keyFileOthers is the group and other permission bits. A key file with any of
+// them set is refused: the key in it is what those bits would expose.
+const keyFileOthers os.FileMode = 0o077
+
+// readKeyFileFor is readKeyFile with the operating system passed in, so the
+// Windows rule can be tested on any machine.
+//
+// The file is opened once and its mode is checked on that open file, so the mode
+// checked is the mode read. goos "windows" skips the mode check: Go reports a
+// writable file as 0666 whatever its ACL, so a mode rule would refuse every file
+// there. That is a named limit, not a pass; the regular-file rule still applies.
+func readKeyFileFor(path, what, goos string) (string, error) {
+	f, err := os.Open(path) // #nosec G304 -- path is an operator-supplied setting (a --*-file flag or its environment variable), not untrusted input
 	if err != nil {
 		return "", fmt.Errorf("read %s file: %w", what, err)
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return "", fmt.Errorf("read %s file %s: %w", what, path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s file %s is not a regular file", what, path)
+	}
+	if mode := info.Mode().Perm(); goos != "windows" && mode&keyFileOthers != 0 {
+		return "", fmt.Errorf("%s file %s has mode %04o: group or other users can read it; make it owner-only (chmod 600)", what, path, mode)
+	}
+
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return "", fmt.Errorf("read %s file %s: %w", what, path, err)
 	}
 	key := strings.TrimSpace(string(b))
 	if key == "" {

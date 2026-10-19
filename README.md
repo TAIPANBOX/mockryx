@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-204-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-214-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-1%20(mvp)-success.svg)
 
@@ -384,7 +384,12 @@ A gateway that requires a client key refuses a call that carries none with
 `identity_mismatch`. Two optional settings let the drill get past both:
 
 - **`--client-key-file PATH`** or **`$MOCKRYX_CLIENT_KEY_FILE`**: a file holding
-  the key on one line. mockryx sends it as `x-fuse-key` on every `messages` and
+  the key on one line. The file must be readable by its owner alone (`chmod 600`).
+  A file that group or other users can read is refused before any request, with
+  exit `2`. This is a change in 0.3.0: an earlier release read such a file. On
+  Windows the mode is not checked, because Go reports a writable file there as
+  0666 whatever its ACL says; that is a named limit, and the file must still be a
+  regular file. mockryx sends it as `x-fuse-key` on every `messages` and
   `tool_check` request. It is never sent to the MCP broker.
 - **`$MOCKRYX_CLIENT_KEY`**: the same key as a value. Give the key one way only:
   both at once is a usage error, exit `2`. There is no flag that takes the key
@@ -401,12 +406,14 @@ echoes it back in a reply, the copy is masked as `***`.
 
 A gateway can also require an `x-api-key`. It is set the same way: a file with
 `--api-key-file PATH` or `$MOCKRYX_API_KEY_FILE` (one key on one line, the same
-rules as the client key file, and the preferred route), or a value with
+rules as the client key file, owner-only as well, and the preferred route), or a value with
 `--api-key` or `$MOCKRYX_API_KEY`. Give it one way: a file together with a value
 is a usage error, exit `2`. A value on the command line still works, but mockryx
 writes one warning line to stderr, because a flag value sits in the process
-list. The key file is not checked for group or other read permissions; keep it
-owner-only.
+list. The key file must be owner-only (`chmod 600`), with the same Windows limit
+as the client key file. A gateway that echoes the x-api-key back does not get it
+into a report, an event or a finding: the key is masked as `***`, as the client
+key is.
 
 A refused credential is never a guardrail result. A `401`, or a `403` that
 names `identity_mismatch`, makes the scenario a `Finding` whose detail reads
