@@ -748,9 +748,11 @@ make build   # -> ./bin/mockryx
 
 ## Verify a download
 
-From the next `v*` tag on, every release is signed keyless with Sigstore and
-carries a build-provenance attestation and an SBOM. v0.2.1 and earlier have
-none of these. For a tag that does, with `cosign` and `gh` installed:
+From v0.2.2 on, every release is signed keyless with Sigstore and carries a
+build-provenance attestation and an SBOM. v0.2.1 and earlier have none of these.
+v0.2.2 is also the first release whose image signature is in the legacy `.sig`
+format that the admission policy in stack-k8s reads. For a tag that does, with
+`cosign` and `gh` installed:
 
 ```sh
 tag=<tag>
