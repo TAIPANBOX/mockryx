@@ -288,6 +288,22 @@ an absent invariant.
     `deny` expectation. *(test: `TestUnauthorizedGatewayReplyIsRefusedCredentialNotGuardrail`,
     `TestIdentityMismatchReplyIsRefusedCredentialNotGuardrail`, `TestRefusedCredentialStopsTheScenario`,
     `TestPlainForbiddenWithNoSignalStaysASkip`, `TestRunCommandRefusedCredentialIsAFindingNotASkip`)*
+15. **The x-api-key can stay off argv.** The gateway's `x-api-key` is read from a
+    file (`--api-key-file` or `$MOCKRYX_API_KEY_FILE`, the preferred route) or from
+    `$MOCKRYX_API_KEY`. A value given with `--api-key` still works, and mockryx
+    writes one warning line on stderr that never prints the value. A key file and
+    a key value given together are refused before anything is sent. The key file
+    follows the client key file's rules, and its errors name the path and never
+    the contents. The key file is not checked for group or other read permission
+    (the client key file is not either); a follow-up may add that to both.
+    `@decided 2026-10-17`: credentials leave argv for every drill that sends
+    them, starting with the x-api-key, which is the second key after the client
+    key of invariant 13. *(test: `TestRunCommandSendsTheAPIKeyFromAFile`,
+    `TestRunCommandRefusesAnAPIKeyGivenTwiceBeforeSendingAnything`,
+    `TestAPIKeyFlagWarnsAndStillSendsTheKey`, `TestReadAPIKeyFileRefusesAFileThatIsNotOneKey`,
+    in `cmd/mockryx/api_key_test.go` and `internal/config/api_key_test.go`;
+    scenarios in `features/api-key-from-a-file.feature`, held by
+    `scripts/features-are-bound.sh`.)*
 
 ## Decisions that have no gate yet
 

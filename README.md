@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-195-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-204-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-1%20(mvp)-success.svg)
 
@@ -399,6 +399,15 @@ A gateway that requires a client key refuses a call that carries none with
 The key is never written to a report, an event or the terminal. If a gateway
 echoes it back in a reply, the copy is masked as `***`.
 
+A gateway can also require an `x-api-key`. It is set the same way: a file with
+`--api-key-file PATH` or `$MOCKRYX_API_KEY_FILE` (one key on one line, the same
+rules as the client key file, and the preferred route), or a value with
+`--api-key` or `$MOCKRYX_API_KEY`. Give it one way: a file together with a value
+is a usage error, exit `2`. A value on the command line still works, but mockryx
+writes one warning line to stderr, because a flag value sits in the process
+list. The key file is not checked for group or other read permissions; keep it
+owner-only.
+
 A refused credential is never a guardrail result. A `401`, or a `403` that
 names `identity_mismatch`, makes the scenario a `Finding` whose detail reads
 "the gateway refused the drill's credential", and the run stops at that first
@@ -785,7 +794,7 @@ gh attestation verify oci://ghcr.io/taipanbox/mockryx:<tag> -R TAIPANBOX/mockryx
 
 # ... or via environment variables:
 export MOCKRYX_GATEWAY=http://127.0.0.1:8080
-export MOCKRYX_API_KEY=...          # optional, sent as x-api-key
+export MOCKRYX_API_KEY_FILE=/run/secrets/mockryx-api-key   # optional, sent as x-api-key; preferred over MOCKRYX_API_KEY
 export MOCKRYX_MCP_BROKER=http://127.0.0.1:4200   # only needed when a loaded scenario has an mcp step
 export MOCKRYX_EVENTS_PATH=out/events.ndjson   # optional, opt-in telemetry
 export MOCKRYX_CLIENT_KEY_FILE=/run/secrets/mockryx-client-key   # only for a gateway that requires a client key

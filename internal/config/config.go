@@ -39,6 +39,9 @@ type Config struct {
 	ClientKeyFile string
 	// AgentID, from MOCKRYX_AGENT_ID, replaces the agent id every step sends.
 	AgentID string
+	// APIKeyFile is a path to a file holding the x-api-key, from
+	// MOCKRYX_API_KEY_FILE. The preferred source: a file keeps the key off argv.
+	APIKeyFile string
 }
 
 // FromEnv reads MOCKRYX_GATEWAY, MOCKRYX_EVENTS_PATH, MOCKRYX_API_KEY,
@@ -53,6 +56,7 @@ func FromEnv() Config {
 		ClientKey:     os.Getenv("MOCKRYX_CLIENT_KEY"),
 		ClientKeyFile: os.Getenv("MOCKRYX_CLIENT_KEY_FILE"),
 		AgentID:       os.Getenv("MOCKRYX_AGENT_ID"),
+		APIKeyFile:    os.Getenv("MOCKRYX_API_KEY_FILE"),
 	}
 }
 
@@ -76,16 +80,28 @@ func splitNonEmpty(s string) []string {
 // one line. Errors name the path and never the contents: the contents are the
 // secret, and a refused file is exactly the one whose contents are wrong.
 func ReadClientKeyFile(path string) (string, error) {
-	b, err := os.ReadFile(path) // #nosec G304 -- path is an operator-supplied setting (--client-key-file or $MOCKRYX_CLIENT_KEY_FILE), not untrusted input
+	return readKeyFile(path, "client key")
+}
+
+// ReadAPIKeyFile reads the x-api-key from path, under the same rules as
+// ReadClientKeyFile.
+func ReadAPIKeyFile(path string) (string, error) {
+	return readKeyFile(path, "API key")
+}
+
+// readKeyFile holds the one set of rules both key files share. what names the
+// key in its errors.
+func readKeyFile(path, what string) (string, error) {
+	b, err := os.ReadFile(path) // #nosec G304 -- path is an operator-supplied setting (a --*-file flag or its environment variable), not untrusted input
 	if err != nil {
-		return "", fmt.Errorf("read client key file: %w", err)
+		return "", fmt.Errorf("read %s file: %w", what, err)
 	}
 	key := strings.TrimSpace(string(b))
 	if key == "" {
-		return "", fmt.Errorf("client key file %s is empty", path)
+		return "", fmt.Errorf("%s file %s is empty", what, path)
 	}
 	if strings.ContainsAny(key, " \t\r\n") {
-		return "", fmt.Errorf("client key file %s must hold one key on one line, with no spaces", path)
+		return "", fmt.Errorf("%s file %s must hold one key on one line, with no spaces", what, path)
 	}
 	return key, nil
 }
