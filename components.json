@@ -46,6 +46,9 @@
           "MOCKRYX_API_KEY": {
             "required": false
           },
+          "MOCKRYX_API_KEY_FILE": {
+            "required": false
+          },
           "MOCKRYX_CLIENT_KEY": {
             "required": false
           },

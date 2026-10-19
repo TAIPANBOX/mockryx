@@ -288,6 +288,31 @@ an absent invariant.
     `deny` expectation. *(test: `TestUnauthorizedGatewayReplyIsRefusedCredentialNotGuardrail`,
     `TestIdentityMismatchReplyIsRefusedCredentialNotGuardrail`, `TestRefusedCredentialStopsTheScenario`,
     `TestPlainForbiddenWithNoSignalStaysASkip`, `TestRunCommandRefusedCredentialIsAFindingNotASkip`)*
+15. **The x-api-key can stay off argv.** The gateway's `x-api-key` is read from a
+    file (`--api-key-file` or `$MOCKRYX_API_KEY_FILE`, the preferred route) or from
+    `$MOCKRYX_API_KEY`. A value given with `--api-key` still works, and mockryx
+    writes one warning line on stderr that never prints the value. A key file and
+    a key value given together are refused before anything is sent. The key file
+    follows the client key file's rules, and its errors name the path and never
+    the contents. Both key files, the client key's and the x-api-key's, are
+    refused when group or other users can read them, or when the path is not a
+    regular file. On Windows the mode is not checked, since Go reports a writable
+    file there as 0666 whatever its ACL: a named limit, tested by injecting the
+    operating system. The x-api-key is masked out of every Finding, as the client
+    key is, so an echoing gateway cannot put it in a report or an event.
+    `@decided 2026-10-17`: credentials leave argv for every drill that sends
+    them, starting with the x-api-key, which is the second key after the client
+    key of invariant 13. *(test: `TestRunCommandSendsTheAPIKeyFromAFile`,
+    `TestRunCommandRefusesAnAPIKeyGivenTwiceBeforeSendingAnything`,
+    `TestAPIKeyFlagWarnsAndStillSendsTheKey`, `TestReadAPIKeyFileRefusesAFileThatIsNotOneKey`,
+    `TestAPIKeyNeverReachesTheReportOrTheEvents`, `TestFindingsNeverCarryTheAPIKey`,
+    `TestKeyFileModeCheckIsSkippedOnWindowsByInjection`,
+    `TestRunCommandRefusesAClientKeyFileGroupOrOtherCanRead`,
+    in `cmd/mockryx/api_key_test.go`, `cmd/mockryx/key_file_mode_test.go`,
+    `internal/config/api_key_test.go`, `internal/config/key_file_mode_test.go` and
+    `internal/runner/apikey_redact_test.go`; scenarios in
+    `features/api-key-from-a-file.feature` and `features/key-files-owner-only.feature`,
+    held by `scripts/features-are-bound.sh`.)*
 
 ## Decisions that have no gate yet
 

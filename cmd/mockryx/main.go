@@ -14,6 +14,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -120,16 +121,17 @@ or third-party system.`)
 func runRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	var (
-		gatewayFlag = fs.String("gateway", "", "gateway base URL to rehearse against (default: $MOCKRYX_GATEWAY)")
-		apiKeyFlag  = fs.String("api-key", "", "x-api-key sent with every crafted request (default: $MOCKRYX_API_KEY)")
-		keyFileFlag = fs.String("client-key-file", "", "file holding the gateway client key, sent as x-fuse-key to the gateway (default: $MOCKRYX_CLIENT_KEY_FILE); the key is read from the file, never from a flag value, so it stays off argv")
-		agentIDFlag = fs.String("agent-id", "", "agent id every request presents, replacing each scenario's own (default: $MOCKRYX_AGENT_ID); under a client key it must be inside that key's namespace")
-		brokerFlag  = fs.String("mcp-broker", "", "MCP broker base URL that mcp steps are sent to (default: $MOCKRYX_MCP_BROKER); required only if a loaded scenario has an mcp step")
-		eventsFlag  = fs.String("events", "", "path to append sim_run/sim_finding/blast_radius_measured events to (default: $MOCKRYX_EVENTS_PATH)")
-		watchFlag   watchPathsFlag
-		format      = fs.String("format", "human", "report format: human|json")
-		savePath    = fs.String("save", "", "also write the JSON report to this path, for 'mockryx report' later")
-		failOnSkip  = fs.Bool("fail-on-skip", false, "treat a scenario skipped as not-configured (its guardrail's signal header was never observed) as a defensive gap; off by default, since a genuine skip is not a gap on its own")
+		gatewayFlag    = fs.String("gateway", "", "gateway base URL to rehearse against (default: $MOCKRYX_GATEWAY)")
+		apiKeyFlag     = fs.String("api-key", "", "x-api-key sent with every crafted request (default: $MOCKRYX_API_KEY); a value on the command line is on the process list, so prefer --api-key-file")
+		apiKeyFileFlag = fs.String("api-key-file", "", "file holding the x-api-key sent with every crafted request (default: $MOCKRYX_API_KEY_FILE); the preferred source, since the key is read from the file and stays off argv; the file must be owner-only (chmod 600), and on Windows that mode check is not made (a named limit)")
+		keyFileFlag    = fs.String("client-key-file", "", "file holding the gateway client key, sent as x-fuse-key to the gateway (default: $MOCKRYX_CLIENT_KEY_FILE); the key is read from the file, never from a flag value, so it stays off argv; the file must be owner-only (chmod 600), and on Windows that mode check is not made (a named limit)")
+		agentIDFlag    = fs.String("agent-id", "", "agent id every request presents, replacing each scenario's own (default: $MOCKRYX_AGENT_ID); under a client key it must be inside that key's namespace")
+		brokerFlag     = fs.String("mcp-broker", "", "MCP broker base URL that mcp steps are sent to (default: $MOCKRYX_MCP_BROKER); required only if a loaded scenario has an mcp step")
+		eventsFlag     = fs.String("events", "", "path to append sim_run/sim_finding/blast_radius_measured events to (default: $MOCKRYX_EVENTS_PATH)")
+		watchFlag      watchPathsFlag
+		format         = fs.String("format", "human", "report format: human|json")
+		savePath       = fs.String("save", "", "also write the JSON report to this path, for 'mockryx report' later")
+		failOnSkip     = fs.Bool("fail-on-skip", false, "treat a scenario skipped as not-configured (its guardrail's signal header was never observed) as a defensive gap; off by default, since a genuine skip is not a gap on its own")
 	)
 	fs.Var(&watchFlag, "watch-events", "a downstream product's own agent-event NDJSON log to poll for expect.event checks (repeatable; default: $MOCKRYX_WATCH_EVENTS, comma-separated)")
 	fs.Usage = func() {
@@ -145,13 +147,17 @@ func runRun(args []string) error {
 		return fmt.Errorf("run requires exactly one scenario directory")
 	}
 	dir := positionals[0]
+	warnAPIKeyFlag(os.Stderr, *apiKeyFlag)
 
 	env := config.FromEnv()
 	gateway := firstNonEmpty(*gatewayFlag, env.Gateway)
 	if gateway == "" {
 		return fmt.Errorf("no gateway configured: set --gateway or $MOCKRYX_GATEWAY")
 	}
-	apiKey := firstNonEmpty(*apiKeyFlag, env.APIKey)
+	apiKey, err := resolveAPIKey(firstNonEmpty(*apiKeyFileFlag, env.APIKeyFile), *apiKeyFlag, env.APIKey)
+	if err != nil {
+		return err
+	}
 	clientKey, err := resolveClientKey(firstNonEmpty(*keyFileFlag, env.ClientKeyFile), env.ClientKey)
 	if err != nil {
 		return err
@@ -369,6 +375,30 @@ func resolveClientKey(keyFile, envValue string) (string, error) {
 		return config.ReadClientKeyFile(keyFile)
 	}
 	return envValue, nil
+}
+
+// resolveAPIKey returns the x-api-key from the one place the operator gave it.
+// A key file, from the flag or the environment, is the preferred source. It is
+// refused alongside a key value (the flag or $MOCKRYX_API_KEY), because the run
+// could not tell which one it was meant to hold. With no file, the value is the
+// flag's if given and the environment's otherwise, as it always was.
+func resolveAPIKey(keyFile, flagValue, envValue string) (string, error) {
+	switch {
+	case keyFile != "" && (flagValue != "" || envValue != ""):
+		return "", fmt.Errorf("give the API key once: as a file (--api-key-file or $MOCKRYX_API_KEY_FILE) or as a value (--api-key or $MOCKRYX_API_KEY), not both")
+	case keyFile != "":
+		return config.ReadAPIKeyFile(keyFile)
+	}
+	return firstNonEmpty(flagValue, envValue), nil
+}
+
+// warnAPIKeyFlag writes one line when the x-api-key came from the command line,
+// where other users can read it in the process list. It never writes the value.
+func warnAPIKeyFlag(w io.Writer, flagValue string) {
+	if flagValue == "" {
+		return
+	}
+	fmt.Fprintln(w, "mockryx: warning: --api-key puts the x-api-key on the process list, where other users can read it; use --api-key-file or $MOCKRYX_API_KEY_FILE")
 }
 
 func firstNonEmpty(vals ...string) string {
