@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // Source identifies mockryx as the producer of every event this package

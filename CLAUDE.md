@@ -31,7 +31,7 @@ The exit codes are a public contract. Operators wire `mockryx` into CI and
 branch on its exit status, so changing a code silently turns a failing drill
 into a passing build somewhere we cannot see. Treat the codes as an API.
 
-This repo pins `github.com/TAIPANBOX/agent-stack-go` **by tag**. Bumping that
+This repo pins `github.com/TAIPANBOX/agent-stack-go/v2` **by tag**. Bumping that
 tag is a contract change, not a dependency refresh.
 
 ## The working loop

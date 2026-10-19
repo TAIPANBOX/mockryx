@@ -18,7 +18,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ALLOWED=(
-	"github.com/TAIPANBOX/agent-stack-go"
+	"github.com/TAIPANBOX/agent-stack-go/v2"
 	"gopkg.in/yaml.v3"
 )
 
