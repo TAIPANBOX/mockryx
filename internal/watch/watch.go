@@ -30,7 +30,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // PollInterval is how often Wait re-reads the watched files. A small,
