@@ -45,3 +45,15 @@ Feature: A drill's x-api-key can come from a file, not from the command line
     Given MOCKRYX_API_KEY holds the key value
     When the drill runs
     Then the gateway receives the key and stderr says nothing about it
+
+  @bound:TestAPIKeyNeverReachesTheReportOrTheEvents
+  Scenario: A gateway that echoes the x-api-key cannot put it into a report or an event
+    Given a gateway that answers every request with an error and echoes the x-api-key in a header and in its body
+    When the drill runs and writes its report, in human and JSON form, and its events
+    Then the key appears in none of them, and each records a finding
+
+  @bound:TestFindingsNeverCarryTheAPIKey
+  Scenario: A finding keeps no copy of the x-api-key
+    Given a step whose reply echoes the x-api-key back
+    When the run keeps the result of that step
+    Then the serialised result does not contain the key, and the echo is replaced by a mark

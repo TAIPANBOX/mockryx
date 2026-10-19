@@ -214,3 +214,62 @@ func TestAPIKeyFromTheEnvironmentIsNotWarned(t *testing.T) {
 		t.Errorf("an environment key produced a warning: %q", stderr)
 	}
 }
+
+// echoingAPIKeyGateway answers 500 to every request and echoes the x-api-key it
+// received in a header and in its body, so every Finding the run writes would
+// carry the key if nothing removed it.
+func echoingAPIKeyGateway(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		k := r.Header.Get("x-api-key")
+		w.Header().Set("x-echo", k)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("not json " + k))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestAPIKeyNeverReachesTheReportOrTheEvents: a gateway that echoes the x-api-key
+// cannot put it into the human report, the JSON report, the saved report or the
+// events file. The run must still write a Finding to each, so the check
+// measured something.
+func TestAPIKeyNeverReachesTheReportOrTheEvents(t *testing.T) {
+	clearAPIKeyEnv(t)
+	gw := echoingAPIKeyGateway(t)
+	dir := t.TempDir()
+	writeScenario(t, dir, "plain.yaml", plainScenario)
+	keyPath := apiKeyFile(t, cliTestAPIKey)
+
+	for _, format := range []string{"human", "json"} {
+		t.Run(format, func(t *testing.T) {
+			saved := filepath.Join(t.TempDir(), "report.json")
+			events := filepath.Join(t.TempDir(), "events.ndjson")
+
+			var err error
+			out := captureStdout(t, func() {
+				err = runRun([]string{"--gateway", gw.URL, "--api-key-file", keyPath,
+					"--format", format, "--save", saved, "--events", events, dir})
+			})
+			if exitCode(err) != exitFindings {
+				t.Fatalf("exit = %d, want %d: the echoing gateway must leave a Finding, or this measured nothing\n%s", exitCode(err), exitFindings, out)
+			}
+			savedBytes, rerr := os.ReadFile(saved)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			eventBytes, rerr := os.ReadFile(events)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			if !strings.Contains(string(eventBytes), "sim_finding") {
+				t.Fatalf("the events file has no sim_finding, so this measured nothing:\n%s", eventBytes)
+			}
+			for name, text := range map[string]string{"stdout report": out, "saved report": string(savedBytes), "events": string(eventBytes)} {
+				if strings.Contains(text, cliTestAPIKey) {
+					t.Errorf("%s contains the x-api-key:\n%s", name, text)
+				}
+			}
+		})
+	}
+}

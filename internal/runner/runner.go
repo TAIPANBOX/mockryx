@@ -210,7 +210,7 @@ func RunWithIdentity(s scenario.Scenario, gatewayURL, brokerURL, apiKey string, 
 		}
 		if out.finding != nil {
 			out.finding.Scenario = s.Name
-			redactFinding(out.finding, id.ClientKey)
+			redactFinding(out.finding, id.ClientKey, apiKey)
 			findings = append(findings, *out.finding)
 		}
 		if out.refused {
@@ -724,25 +724,29 @@ func credentialRefusal(status int, body []byte, clientKey, agentID string) strin
 	return ""
 }
 
-// redactMark replaces the client key wherever it would otherwise be written.
+// redactMark replaces a secret wherever it would otherwise be written.
 const redactMark = "***"
 
-// redactFinding removes key from every text a Finding carries, so a gateway that
-// echoes the key back in a reply cannot put it in a report or an event. The
-// key is the secret; nothing else is changed.
-func redactFinding(f *Finding, key string) {
-	if key == "" {
-		return
-	}
-	f.Detail = strings.ReplaceAll(f.Detail, key, redactMark)
-	f.Expect = strings.ReplaceAll(f.Expect, key, redactMark)
-	f.Got = strings.ReplaceAll(f.Got, key, redactMark)
-	if f.GotHeaders != nil {
-		clean := make(map[string]string, len(f.GotHeaders))
-		for k, v := range f.GotHeaders {
-			clean[strings.ReplaceAll(k, key, redactMark)] = strings.ReplaceAll(v, key, redactMark)
+// redactFinding removes each of keys from every text a Finding carries, so a
+// gateway that echoes a credential back in a reply cannot put it in a report or
+// an event. The keys are the secrets (the client key and the x-api-key); nothing
+// else is changed. An empty key is skipped, since replacing "" would mark every
+// position in the text.
+func redactFinding(f *Finding, keys ...string) {
+	for _, key := range keys {
+		if key == "" {
+			continue
 		}
-		f.GotHeaders = clean
+		f.Detail = strings.ReplaceAll(f.Detail, key, redactMark)
+		f.Expect = strings.ReplaceAll(f.Expect, key, redactMark)
+		f.Got = strings.ReplaceAll(f.Got, key, redactMark)
+		if f.GotHeaders != nil {
+			clean := make(map[string]string, len(f.GotHeaders))
+			for k, v := range f.GotHeaders {
+				clean[strings.ReplaceAll(k, key, redactMark)] = strings.ReplaceAll(v, key, redactMark)
+			}
+			f.GotHeaders = clean
+		}
 	}
 }
 
