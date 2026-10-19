@@ -20,8 +20,8 @@ func keyFileWithMode(t *testing.T, mode os.FileMode) string {
 	return path
 }
 
-// assertModeRefused checks the refusal has the idryx message shape: it names the
-// file and its mode, says who can read it, and never prints the key.
+// assertModeRefused checks the refusal names the file, its mode and the fix, and
+// never prints the key.
 func assertModeRefused(t *testing.T, err error, path string, mode os.FileMode) {
 	t.Helper()
 	if err == nil {
@@ -29,7 +29,7 @@ func assertModeRefused(t *testing.T, err error, path string, mode os.FileMode) {
 		return
 	}
 	msg := err.Error()
-	for _, want := range []string{path, fmt.Sprintf("%04o", mode), "group or other users can read it", "owner-only"} {
+	for _, want := range []string{path, fmt.Sprintf("%04o", mode), "chmod 600"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("mode %04o: refusal %q does not contain %q", mode, msg, want)
 		}

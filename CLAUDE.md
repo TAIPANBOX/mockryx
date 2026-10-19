@@ -295,10 +295,16 @@ an absent invariant.
     a key value given together are refused before anything is sent. The key file
     follows the client key file's rules, and its errors name the path and never
     the contents. Both key files, the client key's and the x-api-key's, are
-    refused when group or other users can read them, or when the path is not a
-    regular file. On Windows the mode is not checked, since Go reports a writable
-    file there as 0666 whatever its ACL: a named limit, tested by injecting the
-    operating system. The x-api-key is masked out of every Finding, as the client
+    held to PostgreSQL's owner rule for the private key it loads (the libpq-ssl
+    documentation, section 32.19.2, and check_ssl_key_file_permissions in
+    src/backend/libpq/be-secure-common.c): a regular file after links are followed;
+    owned by this user at 0600 or stricter, or by root at 0640 or stricter; any
+    other owner refused; any access bit for other users refused. The owner is
+    compared with this user first, so a root process judges a root-owned file by
+    the stricter rule. The root case admits the group read a Kubernetes Secret
+    mounted with an fsGroup presents. On Windows the owner rule is not made, since
+    Go reports a writable file there as 0666 whatever its ACL: a named limit,
+    tested by injecting the operating system and the uid. The x-api-key is masked out of every Finding, as the client
     key is, so an echoing gateway cannot put it in a report or an event.
     `@decided 2026-10-17`: credentials leave argv for every drill that sends
     them, starting with the x-api-key, which is the second key after the client
@@ -306,10 +312,13 @@ an absent invariant.
     `TestRunCommandRefusesAnAPIKeyGivenTwiceBeforeSendingAnything`,
     `TestAPIKeyFlagWarnsAndStillSendsTheKey`, `TestReadAPIKeyFileRefusesAFileThatIsNotOneKey`,
     `TestAPIKeyNeverReachesTheReportOrTheEvents`, `TestFindingsNeverCarryTheAPIKey`,
+    `TestOwnerRuleOwnedByRootAt0440IsAccepted`, `TestOwnerRuleOwnedByRootAt0660IsRefused`,
+    `TestOwnerRuleOwnedByAnotherUserIsRefused`, `TestReadKeyFileJudgesTheTargetOfASymlink`,
     `TestKeyFileModeCheckIsSkippedOnWindowsByInjection`,
     `TestRunCommandRefusesAClientKeyFileGroupOrOtherCanRead`,
     in `cmd/mockryx/api_key_test.go`, `cmd/mockryx/key_file_mode_test.go`,
-    `internal/config/api_key_test.go`, `internal/config/key_file_mode_test.go` and
+    `internal/config/api_key_test.go`, `internal/config/key_file_mode_test.go`,
+    `internal/config/owner_rule_test.go`, `internal/config/owner_link_test.go` and
     `internal/runner/apikey_redact_test.go`; scenarios in
     `features/api-key-from-a-file.feature` and `features/key-files-owner-only.feature`,
     held by `scripts/features-are-bound.sh`.)*
