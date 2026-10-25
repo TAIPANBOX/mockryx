@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           cache: true
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
@@ -24,7 +24,7 @@ jobs:
       - name: staticcheck
         # dominikh/go-tools#1832: staticcheck 2026.2.1 cannot read the export
         # data go1.27.2 writes. Lint under go1.27.1 until a fixed release ships;
-        # build, test and govulncheck stay on go1.27.2.
+        # build, test and govulncheck run on go1.27.3 (GO-2026-6809).
         env:
           GOTOOLCHAIN: go1.27.1
         run: |
@@ -68,7 +68,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           cache: true
       - name: govulncheck
         run: |
