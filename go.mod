@@ -5,7 +5,7 @@ go 1.27
 toolchain go1.27.3
 
 require (
-	github.com/TAIPANBOX/agent-stack-go/v2 v2.0.1
+	github.com/TAIPANBOX/agent-stack-go/v2 v2.0.2
 	gopkg.in/yaml.v3 v3.0.1
 )
 
