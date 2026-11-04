@@ -271,6 +271,16 @@ assert not p.exists(), "the harness left a planted scenario behind"
 p.write_text("name: planted-mcp\nrequires: mcp-dlp\nsteps:\n  - name: asks\n    mcp:\n      method: tools/list\n    expect:\n      result: true\n")')" \
 	"must read as not configured"
 
+# invariant 2 for the game-day drills added on 2026-11-04: plants a drill that
+# expects the 200 a gateway whose provider never failed already returns.
+run_case "selftest: a game-day drill that cannot fail" fail \
+	'./scripts/selftest.sh' \
+	"$(py 'import pathlib
+p = pathlib.Path("scenarios/game-day/planted-by-the-teeth-harness.yaml")
+assert not p.exists(), "the harness left a planted scenario behind"
+p.write_text("name: planted-game-day\nsteps:\n  - name: asks\n    request:\n      model: claude-haiku\n      messages:\n        - role: user\n          content: hello\n    expect:\n      status: 200\n")')" \
+	"a game-day drill must fail here"
+
 echo
 echo "=== and what they must NOT catch ==="
 

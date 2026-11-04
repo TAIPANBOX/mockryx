@@ -595,4 +595,71 @@ print(
 )
 PY
 
+# --- Fifth check: the game-day drills ---
+#
+# scenarios/game-day/ holds the drills for a provider that is failing (a
+# 503, a 429, a 504, an unreachable upstream). A plain run of scenarios/ never
+# loads that directory, so none of the runs above ever exercised them. None
+# declares `requires:`, because a failing provider sends no x-fuse-* header, so
+# none can read as "not configured": against a gateway that answers 200 to
+# everything, in either shape, EVERY one must come back failed. A game-day
+# drill that passes here cannot see a provider failing, which is the fault it
+# exists to rehearse.
+#
+# The pass path is not rehearsed here. It needs a provider that fails, a
+# gateway that records the failure and a notifier, and that chain is modelled in
+# internal/runner/gameday_test.go (TestProviderDrillsPassWhenTheWholeChainHolds),
+# which also shows the drill failing when the gateway hides the failure, when
+# the bus stays silent and when nobody is told.
+
+run_gameday_mode() { # mode -> writes $WORK/gameday-<mode>.json
+	start_stub "$1" || exit 1
+	# The unused watch path is there only so mockryx's upfront "expect.event
+	# needs a watch path" refusal does not stop the run: the status assertion
+	# fails first, and the watcher is never consulted.
+	"$BIN" run --gateway "http://127.0.0.1:$PORT" --format json \
+		--watch-events "$WORK/unused-events.ndjson" scenarios/game-day/ \
+		>"$WORK/gameday-$1.json" 2>"$WORK/gameday-$1.err"
+	stop_stub
+	if [ ! -s "$WORK/gameday-$1.json" ]; then
+		echo "FAIL: the game-day $1 run produced no report at all"
+		cat "$WORK/gameday-$1.err"
+		exit 1
+	fi
+}
+
+run_gameday_mode silent
+run_gameday_mode signalling
+
+python3 - "$WORK/gameday-silent.json" "$WORK/gameday-signalling.json" <<'PY' || rc=1
+import json
+import pathlib
+import sys
+
+problems = []
+count = 0
+for label, path in (("silent", sys.argv[1]), ("signalling", sys.argv[2])):
+    results = json.loads(pathlib.Path(path).read_text())["results"]
+    if not results:
+        problems.append(f"game-day {label} run reported no scenarios at all, so nothing was measured")
+    for r in results:
+        count += 1
+        if r["status"] != "failed":
+            problems.append(
+                f"game-day {label} run: '{r['scenario']}' came back {r['status']} against a gateway "
+                f"whose provider never failed. A game-day drill must fail here: it has no "
+                f"`requires:` to be skipped by, and a pass means it cannot see the failure"
+            )
+
+if problems:
+    for p in problems:
+        print(f"FAIL: {p}")
+    print()
+    print("A game-day drill that passes against a gateway whose provider never failed cannot")
+    print("see the failure it rehearses. See CLAUDE.md invariant 2.")
+    sys.exit(1)
+
+print(f"OK: all {count} game-day runs came back failed against a gateway that answers 200 to everything, in both shapes.")
+PY
+
 exit $rc
