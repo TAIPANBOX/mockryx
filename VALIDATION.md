@@ -52,8 +52,8 @@ zero through. This is `wardryx-denied-tool`'s property under a failure mode no d
 ## What this does not cover
 
 This page is a record of two campaigns, and it stays true about the moment it describes rather than
-about the repository today. Sixteen scenarios ship now (thirteen in `scenarios/`, the two broker drills in `scenarios/mcp/`, and the
-game-day drill), and the two campaigns above exercised three of them. `on-behalf-of-forged-chain`, `approval-required`,
+about the repository today. Nineteen scenarios ship now (thirteen in `scenarios/`, the two broker drills in `scenarios/mcp/`, and the
+four game-day drills), and the two campaigns above exercised three of them. `on-behalf-of-forged-chain`, `approval-required`,
 `verdryx-quality-drift` and `injected-page` were written afterwards and neither campaign included
 them, nor did they include `token-flood` and `pii-in-prompt`, which came later still, nor
 `egress-after-untrusted-read` and the two broker drills, which came later, and `declared-tool-poisoning`, fired locally at v1.10.0 and v1.11.0 (see below), so nobody should
@@ -414,6 +414,22 @@ How to read the table. The scenario passes only when the listed tool is answered
 Gates on commit `9a30cac`, run in this order: gofmt, `go vet`, `go test -race ./...` (eight packages ok), `go build ./...`, `deps-tight.sh` (two direct dependencies), `selftest.sh` (13 scenarios: against the silent stub 2 report a gap and 11 report not configured; against the signalling stub none passes), `readme-numbers.sh` (165 test functions, 13 scenarios in `scenarios/`, 2 broker drills), `reproducible-build.sh` (flags present, binary sha256 `add6fc68...` from the script's own build), and `gates-have-teeth.sh` last on the clean commit: 26 cases, OK, tree left clean. `staticcheck` was clean under the cached go1.27.0 toolchain. CI pins go1.27.1 for staticcheck; that toolchain was not available here and was not downloaded. Under go1.27.2, staticcheck 2026.2.1 stops on export data, so the staticcheck run here is not the CI version.
 
 **Not proven here.** A real provider's answer (the stub answers both requests). The shadow and off modes of the Wardryx hook: in shadow the header reads `would-allow` or `would-deny`, and this drill would report a Finding on both steps, but that was not run. Approval holds, and the MCP broker path (`tools/call`): only the LLM request path is covered. The published Wardryx image (`ghcr.io/taipanbox/wardryx:v1.3.0`), which was not pulled. The launchers seeding `mockryx-allow-list`, which was in progress on 2026-10-13 and is not measured at this commit; at stack-single `a68b40d` the install script and examples carried no `allow_tool`. `govulncheck` and `gosec`, which run in CI only. The catalog's `templates-load` check, which reads this format from a sibling checkout. Only aarch64-apple-darwin binaries were run.
+
+## Provider failure drills, against the local stub and a model of the chain, 2026-11-04
+
+`provider-5xx`, `provider-rate-limited` and `provider-timeout` in `scenarios/game-day/`, run by
+`go test ./internal/runner -run TestProviderDrills`. The provider is `internal/providerstub` in each of its
+three modes; the gateway is a model that forwards to it, passes the provider's status through and writes
+`dependency_failed` to a hash-chained event file, and the notifier is a model that writes `alert_sent` to
+another, both read back by the real `internal/watch`. With the whole chain in place all three drills pass.
+With the gateway answering 200 whatever the provider said, each fails on the status the agent received; with
+a silent bus each fails naming `tokenfuse` and `dependency_failed`; with a silent notifier each fails naming
+`heraldyx` and `alert_sent`. The stub's tests were each shown to go red against a planted fault (503 turned
+into 200, no `Retry-After`, no hold, an unknown mode accepted, the loopback check off, an outbound call
+planted), and so were the drills' (a wrong status, either `expect.event` swapped, a `requires:` added).
+`scripts/selftest.sh` runs `scenarios/game-day/` against a gateway that answers 200 to everything, in both
+shapes, and all eight runs come back failed. The gateway and the notifier are models of TokenFuse and heraldyx, and the stub is the only
+provider anywhere in these runs.
 
 ## Method (the Hetzner campaigns above)
 

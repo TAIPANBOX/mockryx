@@ -1,0 +1,73 @@
+# provider-rate-limited-game-day: a fire drill for what the operator's OWN stack does while its LLM
+# provider is up but failing. The provider throttles every call with a 429.
+#
+# THE PRECONDITION IS A LOCAL STUB, NEVER A REAL PROVIDER
+#
+# Mockryx cannot make a provider fail and does not try. For the length of a game
+# day the operator points their own gateway at the stub this repository ships,
+# on the same machine, and runs this drill against that gateway:
+#
+#   go run scripts/provider-stub.go --mode 429            # loopback only, refuses any other address
+#   TOKENFUSE_UPSTREAM=http://127.0.0.1:4199 ...        # the operator's gateway, started as usual
+#   mockryx run --gateway http://127.0.0.1:4100 \
+#     --watch-events /path/to/gateway/events.ndjson \
+#     --watch-events /path/to/heraldyx/sent.ndjson \
+#     scenarios/game-day
+#
+# The scenario format has no field a target could go in, so this file names no
+# provider and cannot. Like the other game-day drill it sits outside
+# scenarios/ on purpose: its precondition sends no x-fuse-* signal, so a
+# routine `mockryx run ./scenarios` must not see it.
+#
+# WHAT IT CHECKS, IN THE CHAIN'S ORDER
+#
+#   1. The agent's call comes back with the provider's own status (429),
+#      not a hang and not an invented success.
+#   2. The gateway puts one `dependency_failed` for that run on the bus.
+#   3. The same run reaches a person: heraldyx's `alert_sent` for the run_id.
+#
+# Steps 2 and 3 read the watched event files, so a run without them exits 2
+# before anything is sent. A Finding here means the chain that tells a human
+# their provider is failing has broken since.
+name: provider-rate-limited-game-day
+description: >
+  The provider answers 429 through the operator's own gateway (a provider that throttles).
+  The call should come back with that status, the gateway should record a
+  dependency_failed for the run, and the run should reach heraldyx.
+steps:
+  - name: the-agents-call-gets-the-providers-own-status
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "please pull up this afternoon's ticket queue for me"
+    headers:
+      agent_id: agent://mockryx.local/rehearsal/game-day-429
+      on_behalf_of: "user://mockryx.local/rehearsal-operator"
+      budget_usd: "1.00"
+      task_type: game_day_provider_429
+    expect:
+      status: 429
+      event:
+        source: tokenfuse
+        type: dependency_failed
+        within: 10s
+  - name: does-heraldyx-hear-about-it
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "please pull up this afternoon's ticket queue for me"
+    headers:
+      agent_id: agent://mockryx.local/rehearsal/game-day-429
+      on_behalf_of: "user://mockryx.local/rehearsal-operator"
+      budget_usd: "1.00"
+      task_type: game_day_provider_429
+    expect:
+      status: 429
+      event:
+        source: heraldyx
+        type: alert_sent
+        within: 15s

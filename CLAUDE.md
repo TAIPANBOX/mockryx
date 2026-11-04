@@ -323,6 +323,32 @@ an absent invariant.
     `features/api-key-from-a-file.feature` and `features/key-files-owner-only.feature`,
     held by `scripts/features-are-bound.sh`.)*
 
+16. **A provider failure drill rehearses against a local stub and nothing
+    else, and each link of the chain it checks can fail.** The provider a game
+    day points the operator's own gateway at is `scripts/provider-stub.go` (over `internal/providerstub`, excluded from the build so the repository still builds one binary): it listens
+    on a loopback address only (any other is refused before anything is
+    bound, and the command exits 2), it answers with a 503, a 429 or a 504
+    after a delay no longer than mockryx's own client waits, and it makes no
+    outbound call. The three drills in `scenarios/game-day/` check the chain
+    with the existing `expect.event` only: the provider's status reaches the
+    agent, the gateway puts a `dependency_failed` for the run on the bus, and
+    heraldyx sends a notice for the run. None declares `requires:`, so a miss
+    is a Finding and never a skip. `@decided 2026-11-04`: provider failure
+    drills use the local stub only and add no scenario capability. *(test:
+    `TestProviderDrillsPassWhenTheWholeChainHolds`,
+    `TestProviderDrillsFailWhenTheGatewayHidesTheFailure`,
+    `TestProviderDrillsNameTheMissingEventWhenTheBusStaysSilent`,
+    `TestProviderDrillsNameTheMissingNoticeWhenNobodyIsTold`,
+    `TestProviderDrillsAreNeverSkippedAsNotConfigured`,
+    `TestListenRefusesEveryAddressThatIsNotLoopback`,
+    `TestNoOutboundCallExistsInTheStub`,
+    `TestProviderStubExitsTwoOnAnAddressThatIsNotLoopback`; gate:
+    `scripts/selftest.sh`, whose game-day section requires every drill in
+    `scenarios/game-day/` to fail against a gateway whose provider never
+    failed, with a teeth case that plants a drill that cannot fail; scenarios
+    in `features/provider-failure-game-day.feature`, held by
+    `scripts/features-are-bound.sh`)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

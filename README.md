@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-225-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-240-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-1%20(mvp)-success.svg)
 
@@ -174,7 +174,7 @@ real spend, remain the evidence for the harness itself.
 </div>
 
 The diagram above predates `verdryx-quality-drift`, `injected-page`, `reaction-chain-reaches-heraldyx`,
-`token-flood`, `pii-in-prompt`, `egress-after-untrusted-read`, the broker drills and the game-day drill
+`token-flood`, `pii-in-prompt`, `egress-after-untrusted-read`, the broker drills and the game-day drills
 below; it still shows the original five.
 
 Mockryx works in four steps:
@@ -299,33 +299,57 @@ Where the gateway's `pii-in-prompt` reports a `Finding` for `mask` and `shadow`
 because the gateway announces them in a header, the broker does not. An operator
 who has decided blocking must be on passes `--fail-on-skip`.
 
-### The game-day drill: `scenarios/game-day/`
+### The game-day drills: `scenarios/game-day/`
 
-One more scenario, `scenarios/game-day/provider-outage.yaml`, rehearses a
-provider outage: a gateway an operator has deliberately pointed at an
-upstream that will refuse the connection. It lives outside `scenarios/` on
-purpose and a plain `mockryx run ./scenarios` never loads it
-(`internal/scenario.LoadDir` reads one directory, not recursively), because
-its precondition, unlike Wardryx or DLP, is never signalled by an
-`x-fuse-*` response header, so `requires:` cannot tell "not configured" apart
-from "the operator hasn't broken their upstream today", and a routine CI run
-would otherwise see a false gap every ordinary day. Run it deliberately, for
-the duration of a scheduled game day:
+Four scenarios rehearse what the operator's own stack does while its LLM
+provider is failing. They live outside `scenarios/` on purpose and a plain
+`mockryx run ./scenarios` never loads them (`internal/scenario.LoadDir` reads
+one directory, not recursively): a failing provider sends no `x-fuse-*` header,
+so `requires:` cannot tell "not configured" apart from "the operator hasn't
+broken their upstream today", and a routine CI run would see a false gap every
+ordinary day. Run them deliberately, for the duration of a scheduled game day.
+
+| Drill | The provider | The agent's call gets | Then |
+|---|---|---|---|
+| `provider-outage` | refuses the connection | `502` | `dependency_failed` at stage `send`, and a heraldyx notice |
+| `provider-5xx` | is down, answers `503` | `503` | `dependency_failed` for the run on the bus, and a heraldyx notice |
+| `provider-rate-limited` | throttles, answers `429` | `429` | the same two |
+| `provider-timeout` | times out, answers `504` after a delay | `504` | the same two |
+
+The three failing-provider drills check the chain in its order: the call comes
+back with the provider's own status, the gateway puts one `dependency_failed`
+for that run on the bus (`expect.event`, source `tokenfuse`), and the run
+reaches a person (`expect.event`, source `heraldyx`, type `alert_sent`). A
+`Finding` names the link that is missing: the status the agent received, the
+event the bus never carried, or the notice nobody sent.
+
+**The provider is a local stub, never a real one.** Mockryx cannot make a
+provider fail and does not try. This repository ships the stand-in,
+`scripts/provider-stub.go`: it answers every request with a `503`, a `429` (with a
+`Retry-After`) or a `504` after a delay (`--delay`, at most ten seconds, under
+mockryx's own fifteen-second client timeout), it refuses to listen on any
+address that is not loopback, and it makes no outbound call at all. You point
+your own gateway at it and run the drills against that gateway:
 
 ```sh
+go run scripts/provider-stub.go --mode 5xx             # or 429, or timeout; 127.0.0.1:4199
+TOKENFUSE_UPSTREAM=http://127.0.0.1:4199 tokenfuse ...  # your gateway, started as usual
 ./bin/mockryx run --gateway http://127.0.0.1:4100 \
+  --watch-events /path/to/gateway/events.ndjson \
   --watch-events /path/to/heraldyx/sent.ndjson \
   scenarios/game-day
 ```
 
-The scenario file's own header comment is the full write-up: what it checks
-(a clean, distinct degrade status, and whether the same run's trail ever
-reaches a human), and what it deliberately does not rehearse (a provider that
-is reachable but answers with an error status, rather than unreachable
-outright). It was written as a standing Finding, because no plane's event log
-reflected the failure at all; tokenfuse now emits `dependency_failed` on that
-path and heraldyx mails it, so as of 2026-08-26 the drill passes and has become
-a regression guard on the chain that tells you your provider is down.
+Switch the stub's `--mode` between drills; the drill that matches the running
+mode passes and the others report a `Finding` on the status they expected.
+`provider-outage.yaml` needs no stub: point `TOKENFUSE_UPSTREAM` at an address
+that refuses the connection (`http://127.0.0.1:1`).
+
+The scenario files' header comments are the full write-ups. The chain is
+checked end to end without a real gateway in `internal/runner/gameday_test.go`
+(a model of the stub, a gateway that records the failure and a notifier, with
+each link broken in turn), and `scripts/selftest.sh` shows every game-day drill
+failing against a gateway whose provider never failed.
 
 ### Findings vs. "guardrail not configured"
 
@@ -917,7 +941,7 @@ or unwritable events path never blocks a run.
 - [x] human + JSON report rendering, save/load (`mockryx report`)
 - [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.ChainedWriter` (SPEC 6.5 prev_hash chain), opt-in (`MOCKRYX_EVENTS_PATH`)
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
-- [x] thirteen shipped example scenarios in `scenarios/`: `runaway-budget` and `token-flood` (core Breaker: spend accumulated over a loop, and one call refused at reservation), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` and `pii-in-prompt` (DLP: a secret, and personal data when PII blocking is on), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction), `injected-page` and `egress-after-untrusted-read` (the agent firewall, taint labels not wording, through tool history and a `tool_check`), `reaction-chain-reaches-heraldyx` (Wardryx's in-path deny, its own off-path record, and heraldyx's actual notification, all three), `declared-tool-poisoning` (a poisoned tool description in a request's `tools[]`, read by the firewall through TokenFuse invariant 93, first released in TokenFuse v1.11.0), `allow-list-renamed-tool` (Wardryx's allow-list: a renamed tool is refused, not taken for the listed one); plus one game-day drill outside `scenarios/`, `scenarios/game-day/provider-outage.yaml`, for a deliberately unreachable upstream, and the two broker drills in `scenarios/mcp/`, `mcp-secret-in-arguments` and `mcp-pii-in-arguments`, which need `--mcp-broker`
+- [x] thirteen shipped example scenarios in `scenarios/`: `runaway-budget` and `token-flood` (core Breaker: spend accumulated over a loop, and one call refused at reservation), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` and `pii-in-prompt` (DLP: a secret, and personal data when PII blocking is on), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction), `injected-page` and `egress-after-untrusted-read` (the agent firewall, taint labels not wording, through tool history and a `tool_check`), `reaction-chain-reaches-heraldyx` (Wardryx's in-path deny, its own off-path record, and heraldyx's actual notification, all three), `declared-tool-poisoning` (a poisoned tool description in a request's `tools[]`, read by the firewall through TokenFuse invariant 93, first released in TokenFuse v1.11.0), `allow-list-renamed-tool` (Wardryx's allow-list: a renamed tool is refused, not taken for the listed one); plus four game-day drills outside `scenarios/`, in `scenarios/game-day/`: `provider-outage.yaml` for a deliberately unreachable upstream, and `provider-5xx.yaml`, `provider-rate-limited.yaml` and `provider-timeout.yaml` for a provider that is up but failing, rehearsed against the local `scripts/provider-stub.go`, and the two broker drills in `scenarios/mcp/`, `mcp-secret-in-arguments` and `mcp-pii-in-arguments`, which need `--mcp-broker`
 - [x] `agent-stack-go` v1.3.0 pinned dependency, no local `replace`
 - [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`); exercised by `scripts/selftest.sh` both ways (a matching event found, a missing one reported as a `Finding`), and shipped in `verdryx-quality-drift.yaml`
 - [ ] Later: additional built-in scenario packs, as new guardrails ship in TokenFuse / Wardryx
