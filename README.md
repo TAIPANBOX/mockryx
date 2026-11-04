@@ -75,7 +75,10 @@ flowchart TB
   VCX ==>|"delegation_issued / denied / revoked"| BUS
   TF ==>|"agent-event NDJSON"| BUS{{"agent-event bus + Agent Passport"}}
   WX ==> BUS
-  Agent -->|"web fetch"| SCX["Scopyx: governed web egress"]
+  Agent -->|"web fetch: MCP tools/call"| BRK["TokenFuse MCP broker: the scopyx key from its vault, the run labelled from the act"]
+  BRK -->|"last hop"| SCX["Scopyx: governed web egress"]
+  BRK -->|"observed act"| TF
+  Agent -.->|"or direct, key in a header"| SCX
   SCX -->|"POST /v1/decide"| WX
   SCX ==>|"web_fetch / web_blocked"| BUS
   ENG["Engram: memory"] -->|"reflect via base_url"| TF
@@ -86,6 +89,7 @@ flowchart TB
   QX ==>|"crypto events"| BUS
   BUS ==> VX["Verdryx: quality / drift"]
   VX ==>|"quality events"| BUS
+  VX ==>|"slo_burn: error budget spent, so hold"| WX
   TF -->|"outcome-tagged traces"| VX
   MX["Mockryx: pre-prod safety rehearsal"] -->|"hostile scenarios"| TF
   MX ==>|"sim events"| BUS
@@ -96,7 +100,7 @@ flowchart TB
   HX -->|"one mail, a view and never an action"| OPS["your mailbox"]
   HX ==>|"alert_sent"| HJ[("heraldyx's own hash-chained journal, not this bus")]
   YOU(["you, in a browser over your own tunnel"]) --> GX[["Genaryx: the console over all of it"]]
-  GX -->|"signed commands: the kill, an approval, a policy"| CL
+  GX -->|"commands: the kill, an approval, a policy"| CL
   GX -->|"signed commands"| WX
   GX ==>|"console_command"| BUS
   GX -.->|"reads it"| IDX
@@ -782,8 +786,9 @@ not a different program.
 
 Requires Go 1.27+. Mockryx depends on
 [`github.com/TAIPANBOX/agent-stack-go`](https://github.com/TAIPANBOX/agent-stack-go)
-at its tagged `v1.1.0` release, resolved from the module proxy like any other
-Go dependency: no local `replace`, no sibling checkout needed.
+at its tagged `v2.0.2` release (`github.com/TAIPANBOX/agent-stack-go/v2`),
+resolved from the module proxy like any other Go dependency: no local
+`replace`, no sibling checkout needed.
 
 ```sh
 git clone <mockryx-repo-url> mockryx
@@ -808,7 +813,7 @@ sha256sum -c SHA256SUMS
 gh attestation verify mockryx_darwin_arm64.tar.gz -R TAIPANBOX/mockryx
 ```
 
-The image (where one is published):
+The image, published from the same tag:
 
 ```sh
 cosign verify ghcr.io/taipanbox/mockryx:<tag> \
@@ -942,7 +947,7 @@ or unwritable events path never blocks a run.
 - [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.ChainedWriter` (SPEC 6.5 prev_hash chain), opt-in (`MOCKRYX_EVENTS_PATH`)
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
 - [x] thirteen shipped example scenarios in `scenarios/`: `runaway-budget` and `token-flood` (core Breaker: spend accumulated over a loop, and one call refused at reservation), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` and `pii-in-prompt` (DLP: a secret, and personal data when PII blocking is on), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction), `injected-page` and `egress-after-untrusted-read` (the agent firewall, taint labels not wording, through tool history and a `tool_check`), `reaction-chain-reaches-heraldyx` (Wardryx's in-path deny, its own off-path record, and heraldyx's actual notification, all three), `declared-tool-poisoning` (a poisoned tool description in a request's `tools[]`, read by the firewall through TokenFuse invariant 93, first released in TokenFuse v1.11.0), `allow-list-renamed-tool` (Wardryx's allow-list: a renamed tool is refused, not taken for the listed one); plus four game-day drills outside `scenarios/`, in `scenarios/game-day/`: `provider-outage.yaml` for a deliberately unreachable upstream, and `provider-5xx.yaml`, `provider-rate-limited.yaml` and `provider-timeout.yaml` for a provider that is up but failing, rehearsed against the local `scripts/provider-stub.go`, and the two broker drills in `scenarios/mcp/`, `mcp-secret-in-arguments` and `mcp-pii-in-arguments`, which need `--mcp-broker`
-- [x] `agent-stack-go` v1.3.0 pinned dependency, no local `replace`
+- [x] `agent-stack-go` v2.0.2 pinned dependency, no local `replace`
 - [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`); exercised by `scripts/selftest.sh` both ways (a matching event found, a missing one reported as a `Finding`), and shipped in `verdryx-quality-drift.yaml`
 - [ ] Later: additional built-in scenario packs, as new guardrails ship in TokenFuse / Wardryx
 
