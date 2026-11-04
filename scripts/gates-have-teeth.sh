@@ -279,7 +279,7 @@ run_case "selftest: a game-day drill that cannot fail" fail \
 p = pathlib.Path("scenarios/game-day/planted-by-the-teeth-harness.yaml")
 assert not p.exists(), "the harness left a planted scenario behind"
 p.write_text("name: planted-game-day\nsteps:\n  - name: asks\n    request:\n      model: claude-haiku\n      messages:\n        - role: user\n          content: hello\n    expect:\n      status: 200\n")')" \
-	"a game-day drill must fail here"
+	"game-day drill must fail here"
 
 echo
 echo "=== and what they must NOT catch ==="
