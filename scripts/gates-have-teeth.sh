@@ -141,7 +141,7 @@ run_case() {
 	# turns "it did not fail at all" into "it failed for the wrong reason",
 	# which sends the reader to look at prose when the gate is toothless.
 	if [ "$expect" = fail ] && [ "$rc" -ne 0 ] && [ -n "$needle" ] &&
-		! printf '%s' "$out" | grep -qF -- "$needle"; then
+		! grep -qF -- "$needle" <<<"$out"; then
 		printf 'WRONG REASON  %s\n              it failed, but not saying: %s\n' "$name" "$needle"
 		failures=$((failures + 1))
 		return
@@ -417,6 +417,97 @@ run_case "features-are-bound: no features left to read measured nothing" fail \
 	'./scripts/features-are-bound.sh' \
 	"import shutil; shutil.move('features', 'features-away')" \
 	"measured nothing"
+
+# Invariant 17. Under pipefail a pipe into grep -q fails when the writer is still writing, so a healthy tree
+# goes red at random on a loaded machine. The first cases plant the construct; the middle ones are what
+# must not be flagged; the last ones break the gate itself, because a reader that has stopped matching
+# reports what a clean tree reports.
+
+run_case "no-reader-leaves-a-pipe-early: a gate pipes its text into grep -q again" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/deps-tight.sh", "#!/usr/bin/env bash\n", "#!/usr/bin/env bash\nprintf \x27%s\\n\x27 \"$x\" | grep -q y\n")')" \
+	'scripts/deps-tight.sh:'
+
+run_case "no-reader-leaves-a-pipe-early: the pipe is carried over a line" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/deps-tight.sh", "#!/usr/bin/env bash\n", "#!/usr/bin/env bash\nprintf \x27%s\\n\x27 \"$x\" \\\n  | grep -q y\n")')" \
+	'scripts/deps-tight.sh:'
+
+run_case "no-reader-leaves-a-pipe-early: a workflow step reads through the pipe" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit(".github/workflows/ci.yml", "run: ./scripts/deps-tight.sh", "run: printf x | grep -q x")')" \
+	'.github/workflows/ci.yml:'
+
+run_case "no-reader-leaves-a-pipe-early: the words are only in a comment" pass \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/deps-tight.sh", "#!/usr/bin/env bash\n", "#!/usr/bin/env bash\n# printf x | grep -q x\n")')"
+
+run_case "no-reader-leaves-a-pipe-early: the words are a command handed to another shell" pass \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/deps-tight.sh", "#!/usr/bin/env bash\n", "#!/usr/bin/env bash\nsh -c \"printf x | grep -q x\"\n")')"
+
+run_case "no-reader-leaves-a-pipe-early: the words are in a here-document" pass \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/deps-tight.sh", "#!/usr/bin/env bash\n", "#!/usr/bin/env bash\ncat <<\x27EOF\x27\nprintf x | grep -q x\nEOF\n")')"
+
+run_case "no-reader-leaves-a-pipe-early: grep -c reads to the end of a pipe" pass \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/deps-tight.sh", "#!/usr/bin/env bash\n", "#!/usr/bin/env bash\nprintf x | grep -c x >/dev/null\n")')"
+
+run_case "no-reader-leaves-a-pipe-early: a here-string has no pipe to leave" pass \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/deps-tight.sh", "#!/usr/bin/env bash\n", "#!/usr/bin/env bash\ngrep -q x <<<x\n")')"
+
+run_case "no-reader-leaves-a-pipe-early: a substitution in quotes reads through the pipe" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/deps-tight.sh", "#!/usr/bin/env bash\n", "#!/usr/bin/env bash\nx=\"$(printf y | grep -m1 y)\"\n")')" \
+	'scripts/deps-tight.sh:2 pipes into `grep -m1`'
+
+run_case "no-reader-leaves-a-pipe-early: a long option leaves as early as a short one" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/deps-tight.sh", "#!/usr/bin/env bash\n", "#!/usr/bin/env bash\nprintf y | grep --quiet y\n")')" \
+	'scripts/deps-tight.sh:2 pipes into `grep --quiet`'
+
+run_case "no-reader-leaves-a-pipe-early: a quote left open loses the reader its place" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 's = open("scripts/deps-tight.sh").read()
+open("scripts/deps-tight.sh", "w").write(s + "echo \"open\n")')" \
+	'lost its place'
+
+run_case "no-reader-leaves-a-pipe-early: the reader stops knowing -q" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/no-reader-leaves-a-pipe-early.sh", "if ch in \"qmlL\":", "if ch in \"mlL\":")')" \
+	'the reader missed'
+
+run_case "no-reader-leaves-a-pipe-early: the reader stops reporting what it finds" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/no-reader-leaves-a-pipe-early.sh", "found.append((m.start(), flag))", "pass")')" \
+	'the reader missed'
+
+run_case "no-reader-leaves-a-pipe-early: the reader starts reading quoted text" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/no-reader-leaves-a-pipe-early.sh", "blank(i, end + 1)", "pass")')" \
+	'the reader flagged'
+
+run_case "no-reader-leaves-a-pipe-early: the control writes less than a pipe holds" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/no-reader-leaves-a-pipe-early.sh", "WRITER = \"seq 1 400000\"", "WRITER = \"seq 1 3\"")')" \
+	'it must fail every time'
+
+run_case "no-reader-leaves-a-pipe-early: no pipe is read" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/no-reader-leaves-a-pipe-early.sh", "pipes += len(PIPE.findall(masked))", "pipes += 0")')" \
+	'measured NOTHING'
+
+run_case "no-reader-leaves-a-pipe-early: no shell file is read" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/no-reader-leaves-a-pipe-early.sh", "if path.endswith(\".sh\") or path.startswith(\".githooks/\") or (first.startswith(\"#!\") and \"bash\" in first):", "if False:")')" \
+	'measured NOTHING'
+
+run_case "no-reader-leaves-a-pipe-early: no workflow step is read" fail \
+	'./scripts/no-reader-leaves-a-pipe-early.sh' \
+	"$(py 'edit("scripts/no-reader-leaves-a-pipe-early.sh", "elif path.startswith(\".github/workflows/\") and", "elif path.startswith(\".github/flows/\") and")')" \
+	'measured NOTHING'
 
 echo
 if [ -n "$(git status --porcelain)" ]; then
