@@ -55,6 +55,9 @@ jobs:
       - name: a release can be rebuilt byte for byte
         run: ./scripts/reproducible-build.sh
 
+      - name: no pipe ends in a grep that leaves early
+        run: ./scripts/no-reader-leaves-a-pipe-early.sh
+
       # Last, because it mutates tracked files and restores them: anything
       # after it would run against a tree it had just rewritten and put back.
       # It needs a clean tree and says so plainly, so it also reports any
