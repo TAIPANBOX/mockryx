@@ -1,0 +1,106 @@
+# mcp-ungranted-tool-held: a fire drill for the tool hold, the rule that a tool
+# call nothing grants waits for a person. (OWASP Top 10 for LLM Applications
+# 2025: LLM06:2025 Excessive Agency.)
+#
+# Defensive intent: this sends the operator's OWN MCP broker the same harmless
+# tools/call twice, as two identities. It rehearses "what happens when an agent
+# nobody has given a tool calls one", so we confirm the call waits for a person
+# before it reaches the MCP server, and that the same call from an identity with
+# a grant goes through. It never targets any system other than the broker url
+# passed with --mcp-broker.
+#
+# It lives in scenarios/mcp/ for the reason mcp-secret-in-arguments.yaml gives: a
+# plain `mockryx run ./scenarios` never loads it, so no existing pipeline needs a
+# broker it did not have.
+#
+#   mockryx run --gateway http://127.0.0.1:4100 --mcp-broker http://127.0.0.1:4200 scenarios/mcp
+#
+# THE GUARDRAIL, AND WHAT IT NEEDS IN FRONT OF IT
+#
+# wardryx v2.6.0's rule 15: under a policy with `when_no_grant: hold`, a tool
+# call is held until a policy that pins a trust domain grants that tool, in
+# allow_tool or grant_tool. TokenFuse v1.23.0's broker answers the hold with
+# JSON-RPC error -32004 and quotes the reason, which is what this drill reads:
+#
+#   blocked: tool "search_notes" requires approval (approval <id>) (policy
+#   "tool-hold" when_no_grant: no policy grants tool "search_notes" to agent
+#   "agent://ungranted.invalid/rehearsal/no-grant"; human approval required)
+#
+# Both stacks seed the rule and, beside it, grant-drills: `grant_tool: ["*"]` on
+# agent://mockryx.local/*, every identity these drills speak as. The first step
+# below has an id no grant can name by accident: `.invalid` is reserved (RFC 2606)
+# and is nobody's trust domain. The second is a drill identity, so grant-drills
+# reaches it.
+#
+# WHY TWO STEPS
+#
+# A broker that holds every call would pass the first step alone, and that is the
+# failure an operator would least expect here: a floor with its grants gone looks
+# like a floor that works. The second step is what tells "an ungranted id is held"
+# from "everything is held". It asks for a JSON-RPC result, so the MCP server
+# behind the broker has to answer search_notes with one, as the fake server a
+# rehearsal broker stands in front of does. A server that does not know the name
+# answers with its own error, and this step reports that error as a Finding.
+#
+# HOW IT READS
+#
+#   passed                  held, and only the ungranted id.
+#   skipped_not_configured  a broker with no policy gate, in shadow, or with the
+#                           hold off: both calls come back as results and no
+#                           guardrail spoke. It does not tell these apart, the
+#                           limit mcp-secret-in-arguments.yaml spells out.
+#                           --fail-on-skip is the operator's way to insist.
+#   failed                  another guardrail spoke (a deny, or a hold that is
+#                           not this rule), or the drill identity was held too,
+#                           which says grant-drills is missing from the policy.
+#
+# A RUN LEAVES ONE ROW FOR A PERSON
+#
+# The hold is real, so the first step opens an approval on the operator's own
+# wardryx. Nobody needs to answer it, and it asks nothing of an agent. Later runs
+# ask the same question with the same digest, and wardryx keeps one pending row
+# for that, so a drill in a nightly pipeline does not fill the queue.
+#
+# NOT UNDER --agent-id
+#
+# The override replaces both ids with one, and this drill is about two. Run it
+# with the scenario's own ids, which an open rehearsal broker takes as written.
+#
+# THE SCOPE
+#
+# The broker's answer to two ids. An approval, its token and the retry it lets
+# through are wardryx's and the console's own tests, a grant that names one tool
+# is a policy of the operator's, and a model call of the same agent passes the
+# floor by design.
+name: mcp-ungranted-tool-held
+requires: tool-hold
+description: >
+  An agent nothing grants calls an MCP tool. The broker should hold the call for
+  a person, with JSON-RPC error -32004 naming when_no_grant, before it reaches
+  the MCP server. The same call from a drill identity, which grant-drills grants,
+  should go through. A broker with the hold off reports not configured instead of
+  a Finding.
+steps:
+  - name: an-id-no-grant-can-name-is-held
+    mcp:
+      method: tools/call
+      params:
+        name: search_notes
+        arguments:
+          query: "fire drill: nothing to find"
+    headers:
+      agent_id: agent://ungranted.invalid/rehearsal/no-grant
+    expect:
+      error_code: -32004
+      error_contains: when_no_grant
+  - name: a-drill-identity-under-grant-drills-goes-through
+    mcp:
+      method: tools/call
+      params:
+        name: search_notes
+        arguments:
+          query: "fire drill: nothing to find"
+    headers:
+      agent_id: agent://mockryx.local/rehearsal/tool-hold
+    expect:
+      result: true

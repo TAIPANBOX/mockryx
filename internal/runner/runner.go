@@ -620,7 +620,7 @@ func probeMCP(client *http.Client, tgt target, step scenario.Step, h scenario.He
 
 	if rpc.Error != nil {
 		code := *rpc.Error.Code
-		p.got = fmt.Sprintf("JSON-RPC error %d: %s", code, snippet([]byte(rpc.Error.Message)))
+		p.got = fmt.Sprintf("JSON-RPC error %d: %s", code, brokerMessage(rpc.Error.Message))
 		p.signal = code >= brokerCodeLow && code <= brokerCodeHigh
 		if want := step.Expect.ErrorCode; want != nil {
 			p.matched = code == *want &&
@@ -666,6 +666,19 @@ func snippet(b []byte) string {
 	}
 	if s == "" {
 		return "empty body"
+	}
+	return s
+}
+
+// brokerMessage is a broker's refusal as a report quotes it. The sentence that
+// says why comes last, after the tool and the approval id, so a snippet's 120
+// bytes stopped inside it. The broker caps the reason it quotes at 200 characters,
+// which puts the whole message well under this.
+func brokerMessage(msg string) string {
+	const most = 400
+	s := strings.Join(strings.Fields(msg), " ")
+	if len(s) > most {
+		s = s[:most] + "..."
 	}
 	return s
 }
