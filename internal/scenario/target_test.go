@@ -238,3 +238,47 @@ func TestShippedScenariosNameNoTarget(t *testing.T) {
 	}
 	t.Logf("%d scenarios inspected across scenarios/, scenarios/mcp and scenarios/game-day", inspected)
 }
+
+// The two ids the tool hold divides. Every drill speaks as a drill identity,
+// under drillGrant, because that is what grant-drills grants in both stacks; a
+// drill outside it would be held on a box that runs the hold, and would report
+// the hold in place of whatever it rehearses. One step is outside on purpose, and
+// it is held to a domain no grant can name.
+const (
+	drillGrant      = "agent://mockryx.local/"
+	ungrantedDrill  = "mcp-ungranted-tool-held"
+	ungrantedDomain = "agent://ungranted.invalid/"
+)
+
+func TestEveryShippedDrillSpeaksUnderTheDrillGrant(t *testing.T) {
+	ids, outside := 0, 0
+	for _, sub := range []string{"", "mcp", "game-day"} {
+		dir := filepath.Join("..", "..", "scenarios", sub)
+		scenarios, err := LoadDir(dir)
+		if err != nil {
+			t.Fatalf("cannot load scenarios in %s: %v", dir, err)
+		}
+		for _, s := range scenarios {
+			for _, st := range s.Steps {
+				id := st.Headers.AgentID
+				if id == "" {
+					continue
+				}
+				ids++
+				switch {
+				case strings.HasPrefix(id, drillGrant):
+				case s.Name == ungrantedDrill && strings.HasPrefix(id, ungrantedDomain):
+					outside++
+				default:
+					t.Errorf("scenario %q step %q speaks as %q, which grant-drills does not reach", s.Name, st.Name, id)
+				}
+			}
+		}
+	}
+	if ids == 0 {
+		t.Fatal("no scenario names an agent id, so this test measured nothing")
+	}
+	if outside != 1 {
+		t.Errorf("%d steps speak as an id no grant can name, want exactly 1: the tool hold drill's", outside)
+	}
+}

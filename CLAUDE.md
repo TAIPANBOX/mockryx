@@ -172,9 +172,9 @@ an absent invariant.
    mutations that changed no bytes, and three of the five had been verified by
    hand against the same gate minutes earlier. So every mutation asserts it
    applied: a case whose edit changed nothing is a failure here, not a pass.
-   *(gate: `scripts/gates-have-teeth.sh`, 31 cases: sixteen real faults each
-   gate must catch, six non-faults they must not, and nine subjects taken away
-   entirely, where the gate must say it measured nothing rather than report OK.
+   *(gate: `scripts/gates-have-teeth.sh`, 53 cases: real faults each gate must
+   catch, non-faults they must not, and subjects taken away entirely, where the
+   gate must say it measured nothing rather than report OK.
    `selftest.sh` gets few cases rather than many because it builds the binary
    and stands up stub gateways; it gets the property it names itself, that a
    tree which does not build measured nothing, and, since 2026-10-12, one case
@@ -351,6 +351,8 @@ an absent invariant.
     `scripts/features-are-bound.sh`)*
 17. **A check says what the text holds, not which of a writer and its reader finished first.** `@claude 2026-11-06`, carried from stack-k8s#226 and stack-single#167; it records no decision of the owner. Under `set -o pipefail` a pipe into `grep -q` reports the writer too: grep leaves at its first match, a writer with more to write takes SIGPIPE, the pipeline returns 141, and a line that is there reads as missing. In the negative form, `if ... | grep -q bad`, the 141 reads as clean and a refused line passes. The rate follows the load on the machine. Here the one place was `scripts/gates-have-teeth.sh`, which reads a gate's output to judge a failure, so no gate here carried it; this one is carried so the next check written here does not bring the construct in. Every such pipe in live shell code here moved, 1 in one file: to a here-string, `grep -q x <<<"$text"`, or to a pipe into `grep -c x >/dev/null`.
     *(gate: `scripts/no-reader-leaves-a-pipe-early.sh`: a control that breaks a real pipe, known lines through the reader, then every tracked shell file and workflow `run:` step masked down to live code. It refuses to report OK on no shell file, no pipe, no step or a file it lost its place in. Eighteen cases in `scripts/gates-have-teeth.sh`. Not held: `| head`, the same race, which here takes a few lines from a writer of a few lines.)*
+18. **Every drill speaks as an identity `grant-drills` reaches, and one drill rehearses the tool hold.** `@decided 2026-11-07` (paraphrased): a tool call nothing grants is held for a person, a model call passes, and only an explicit grant lifts the hold. `@claude 2026-11-07`: what follows for the drills is my reading. Both stacks seed `grant-drills`, `grant_tool: ["*"]` on `agent://mockryx.local/*`, so a drill that speaks outside that prefix would be held on a box with the hold and would report the hold in place of what it rehearses. `mcp-ungranted-tool-held` is the one step outside it, under `agent://ungranted.invalid/`, a domain no grant can name by accident, and it reads `when_no_grant` out of the broker's reply, because a `-32004` alone is also a deny, and a `requires approval` alone is also a hold of another rule. Its second step is a drill identity expecting a result: without it a broker that holds everybody would pass. No new scenario capability: an `mcp` step and two existing `expect` fields.
+    *(test: `TestEveryShippedDrillSpeaksUnderTheDrillGrant`, `TestToolHoldDrillPassesWhenOnlyTheUngrantedIdIsHeld`, `TestToolHoldDrillFailsWhenTheDrillIdentityIsHeldToo`, `TestToolHoldDrillReadsAsNotConfiguredWhenTheHoldIsOff`, `TestToolHoldDrillFailsWhenAnotherGuardrailSpeaks`, `TestScanDrillsReadAsTheyDidWithTheToolHoldOn`, `TestScanDrillsReportAFloorWithNoGrantsAsAFinding`, `TestAFindingQuotesTheWholeSentenceOfARefusal`; gate: `scripts/selftest.sh`, whose stub models the hold in two states, the floor with `grant-drills` and with no grants, three cases in `scripts/gates-have-teeth.sh`; scenarios in `features/tool-hold.feature`, held by `scripts/features-are-bound.sh`)*
 
 ## Decisions that have no gate yet
 

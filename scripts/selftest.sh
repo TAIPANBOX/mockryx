@@ -57,6 +57,11 @@
 #               genuinely enforcing one with -32002 / -32006 by what the call
 #               carries.
 #
+# Since 2026-11-07 the stub models the tool hold too, in the shape TokenFuse
+# v1.23.0's broker answers it: -32004 quoting wardryx v2.6.0's when_no_grant reason.
+# `hold` grants agent://mockryx.local/* as grant-drills does, and `holdall` is the
+# same floor with its grants gone, so every identity is held. See the fourth check.
+#
 # The mcp drills live in scenarios/mcp/, which a plain run of scenarios/ never
 # loads, so they get their own pair of runs below. Everything is checked the
 # same way: no drill may pass against a stub that enforces nothing, and each
@@ -99,6 +104,9 @@ PORT = int(sys.argv[2])
 SOURCES = ("fetch_url", "web_search")
 EGRESS = ("http_post", "send_email", "send_message")
 TAINTED = set()
+# What grant-drills grants in both stacks: only an identity under this is let
+# through by the modes that model the tool hold.
+GRANTED = "agent://mockryx.local/"
 
 
 class H(BaseHTTPRequestHandler):
@@ -159,6 +167,15 @@ class H(BaseHTTPRequestHandler):
                 return self.reply(200, err(-32002, "blocked: raw secret in tool arguments (aws_access_key)"))
             if "@example.com" in text or "+44 7700" in text:
                 return self.reply(200, err(-32006, "blocked: pii in tool arguments (pii_email, pii_phone)"))
+        if MODE in ("firewall", "hold", "holdall"):
+            # After the scans, as the broker orders them: the tool hold, and the
+            # text wardryx and the broker write for it. `hold` and `firewall` let
+            # a drill identity through, `holdall` has lost every grant.
+            agent = self.headers.get("x-fuse-agent-id") or ""
+            if MODE == "holdall" or not agent.startswith(GRANTED):
+                tool = (req.get("params") or {}).get("name", "")
+                why = f'policy "tool-hold" when_no_grant: no policy grants tool "{tool}" to agent "{agent}"; human approval required'
+                return self.reply(200, err(-32004, f'blocked: tool "{tool}" requires approval (approval ap_628813828092ec92155db7b26ace4363) ({why})'))
         elif MODE == "signalling":
             # A guardrail speaks, but it is a policy gate and not the scan this
             # drill is about: the broker announces itself and does not hold.
@@ -503,6 +520,19 @@ PY
 # broker drills and egress-after-untrusted-read must pass. A drill whose
 # payload the enforcing stub does not recognise would fail here, and the
 # message says which.
+#
+# And the tool hold, in the two states that decide what these drills mean on a
+# box that runs it, both with the scans off:
+#
+#   hold     the floor and grant-drills, as both stacks seed them. Every drill
+#            that rehearses a scan keeps reading as not configured, because its
+#            identity is granted, and mcp-ungranted-tool-held passes.
+#
+#   holdall  the floor with its grants gone. Every drill must fail, and each
+#            Finding must name when_no_grant: the scan drills because a policy
+#            gate spoke, and mcp-ungranted-tool-held because holding everything
+#            is not holding the ungranted. That drill must fail on its second
+#            step, or the step that tells the two apart has stopped working.
 
 run_mcp_mode() { # mode -> writes $WORK/mcp-<mode>.json
 	start_stub "$1" || exit 1
@@ -518,6 +548,8 @@ run_mcp_mode() { # mode -> writes $WORK/mcp-<mode>.json
 
 run_mcp_mode silent
 run_mcp_mode signalling
+run_mcp_mode hold
+run_mcp_mode holdall
 
 mkdir -p "$WORK/firewall-scenario"
 cp scenarios/egress-after-untrusted-read.yaml "$WORK/firewall-scenario/"
@@ -536,19 +568,47 @@ for f in "$WORK/firewall-egress.json" "$WORK/firewall-mcp.json"; do
 	fi
 done
 
-python3 - "$WORK/mcp-silent.json" "$WORK/mcp-signalling.json" "$WORK/firewall-egress.json" "$WORK/firewall-mcp.json" <<'PY' || rc=1
+python3 - "$WORK/mcp-silent.json" "$WORK/mcp-signalling.json" "$WORK/firewall-egress.json" "$WORK/firewall-mcp.json" "$WORK/mcp-hold.json" "$WORK/mcp-holdall.json" <<'PY' || rc=1
 import json
 import pathlib
 import sys
 
-silent, signalling, fw_egress, fw_mcp = (
-    json.loads(pathlib.Path(p).read_text())["results"] for p in sys.argv[1:5]
+silent, signalling, fw_egress, fw_mcp, hold, holdall = (
+    json.loads(pathlib.Path(p).read_text())["results"] for p in sys.argv[1:7]
 )
 
 problems = []
 
-if not silent or not signalling or not fw_egress or not fw_mcp:
+if not silent or not signalling or not fw_egress or not fw_mcp or not hold or not holdall:
     problems.append("a run reported no scenarios at all, so nothing was measured")
+
+HOLD_DRILL = "mcp-ungranted-tool-held"
+if HOLD_DRILL not in [r["scenario"] for r in hold]:
+    problems.append(f"the tool hold runs never saw '{HOLD_DRILL}', so the hold was not rehearsed at all")
+
+for r in hold:
+    want = "passed" if r["scenario"] == HOLD_DRILL else "skipped_not_configured"
+    if r["status"] != want:
+        problems.append(
+            f"tool hold run: '{r['scenario']}' came back {r['status']} against a broker with the floor and "
+            f"grant-drills and its scans off; it must be {want}, so a drill identity is being held or the "
+            f"hold is not being read"
+        )
+
+for r in holdall:
+    if r["status"] != "failed":
+        problems.append(
+            f"no-grants run: '{r['scenario']}' came back {r['status']} against a broker that holds every "
+            f"identity; a floor that lost its grants must show up as a Finding"
+        )
+        continue
+    got = " ".join(f.get("got", "") for f in r.get("findings") or [])
+    if "when_no_grant" not in got:
+        problems.append(f"no-grants run: '{r['scenario']}' failed, but no Finding names when_no_grant (got {got!r})")
+    if r["scenario"] == HOLD_DRILL and not any(
+        f.get("step") == "a-drill-identity-under-grant-drills-goes-through" for f in r.get("findings") or []
+    ):
+        problems.append(f"no-grants run: '{HOLD_DRILL}' failed, and not on the step that tells a floor with grants from one without")
 
 for r in silent:
     if r["status"] != "skipped_not_configured":
@@ -591,7 +651,9 @@ if problems:
 print(
     f"OK: the {len(silent)} broker drills read as not configured against a broker that says nothing, "
     f"fail against one whose guardrail speaks without holding, and pass against one that holds; "
-    f"egress-after-untrusted-read passes against a firewall that holds per run."
+    f"egress-after-untrusted-read passes against a firewall that holds per run. With the tool hold on "
+    f"the scan drills still read as not configured and {HOLD_DRILL} passes; with its grants gone all "
+    f"{len(holdall)} fail on when_no_grant."
 )
 PY
 

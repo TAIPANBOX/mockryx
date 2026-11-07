@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-240-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-248-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-1%20(mvp)-success.svg)
 
@@ -262,7 +262,7 @@ and allows, handing back what it would have refused, so both drills report a
 
 ### The broker drills: `scenarios/mcp/`
 
-Two drills rehearse the MCP credential broker (`tokenfuse mcp-broker`), the
+Three drills rehearse the MCP credential broker (`tokenfuse mcp-broker`), the
 second place an agent's tool call is governed. They live in their own
 directory, and a plain `mockryx run ./scenarios` never loads it
 (`internal/scenario.LoadDir` reads one directory, not recursively), for a
@@ -275,6 +275,7 @@ shipped scenarios against a gateway alone from green into a usage error.
 | --- | --- | --- | --- |
 | `mcp/mcp-secret-in-arguments.yaml` | An agent pastes what looks like a live credential (AWS's documented example key) into the arguments of an MCP `tools/call` (OWASP LLM02:2025) | `mcp-dlp` | JSON-RPC error `-32002`, "blocked", when `TOKENFUSE_MCP_DLP=block` |
 | `mcp/mcp-pii-in-arguments.yaml` | An agent hands a customer's email address and phone number (an `example.com` address and a UK fiction-range number) to an MCP tool (OWASP LLM02:2025) | `mcp-dlp-pii` | JSON-RPC error `-32006`, "blocked", when `TOKENFUSE_MCP_DLP_PII=block` |
+| `mcp/mcp-ungranted-tool-held.yaml` | An agent nothing grants calls a tool, and the same call comes from a drill identity (OWASP LLM06:2025) | `tool-hold` | JSON-RPC error `-32004` naming `when_no_grant` for the ungranted id, and a JSON-RPC result for the drill identity, when wardryx runs `when_no_grant: hold` with `grant-drills` |
 
 ```sh
 ./bin/mockryx run --gateway http://127.0.0.1:4100 \
@@ -290,7 +291,22 @@ run of transport errors would have rehearsed nothing and exited `1`, which a CI
 gate reads as a guardrail gap. A run with no `mcp` step never looks at the
 setting.
 
-**How a broker that is not configured reads, and the limit of that.** Both
+**The tool hold.** Both stacks hold a tool call nothing grants for a person
+(wardryx v2.6.0's `when_no_grant: hold`, reaching the broker's reply in TokenFuse
+v1.23.0), and both grant every tool to `agent://mockryx.local/*` in a rule named
+`grant-drills`. Every drill speaks under that prefix, so on a box with the hold
+the two scan drills read as they did: the scan runs first, and with it off the
+identity passes the policy gate and the drill reports not configured.
+`mcp-ungranted-tool-held` rehearses the hold itself, with an id no policy can name
+by accident (`agent://ungranted.invalid/...`) and then a drill identity. The
+drill identity's step is what tells "an ungranted id is held" from "everything is
+held": a policy that has lost `grant-drills` fails it, and fails the scan drills
+with a `-32004` whose message names `when_no_grant`. That step asks for a result,
+so the MCP server behind the broker has to answer `search_notes`, as a rehearsal's
+fake server does. A run leaves one pending approval on the operator's wardryx,
+and later runs ask the same question, so it stays one row.
+
+**How a broker that is not configured reads, and the limit of that.** The
 scans are opt-in, and the broker stamps no header on a reply, so the signal is
 the reply itself: a JSON-RPC error whose code is one the broker reserves for its
 own guardrails (`-32001` to `-32010`). If no reply in the scenario ever carries
@@ -432,7 +448,10 @@ A gateway that requires a client key refuses a call that carries none with
   the drill under the namespace the key is bound to, for example
   `agent://<trust-domain>/agents/mockryx`. A policy that matches a scenario's own
   agent id sees the override instead, so a drill that depends on one of those
-  ids should not be run under an override.
+  ids should not be run under an override. Two kinds do: `mcp-ungranted-tool-held`
+  is about two ids, and on a box with the tool hold the `grant-drills` rule reaches
+  `agent://mockryx.local/*` only, so a broker drill under another id needs a grant
+  of its own.
 
 The key is never written to a report, an event or the terminal. If a gateway
 echoes it back in a reply, the copy is masked as `***`.

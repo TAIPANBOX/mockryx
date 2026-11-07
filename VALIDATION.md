@@ -52,7 +52,7 @@ zero through. This is `wardryx-denied-tool`'s property under a failure mode no d
 ## What this does not cover
 
 This page is a record of two campaigns, and it stays true about the moment it describes rather than
-about the repository today. Nineteen scenarios ship now (thirteen in `scenarios/`, the two broker drills in `scenarios/mcp/`, and the
+about the repository today. Twenty scenarios ship now (thirteen in `scenarios/`, the three broker drills in `scenarios/mcp/`, and the
 four game-day drills), and the two campaigns above exercised three of them. `on-behalf-of-forged-chain`, `approval-required`,
 `verdryx-quality-drift` and `injected-page` were written afterwards and neither campaign included
 them, nor did they include `token-flood` and `pii-in-prompt`, which came later still, nor
@@ -430,6 +430,35 @@ planted), and so were the drills' (a wrong status, either `expect.event` swapped
 `scripts/selftest.sh` runs `scenarios/game-day/` against a gateway that answers 200 to everything, in both
 shapes, and all eight runs come back failed. The gateway and the notifier are models of TokenFuse and heraldyx, and the stub is the only
 provider anywhere in these runs.
+
+## The tool hold, fired at wardryx v2.6.0 and TokenFuse v1.23.0, 2026-11-07
+
+`mcp-ungranted-tool-held` and the two scan drills, in every state a box can be in. wardryx
+`ghcr.io/taipanbox/wardryx:v2.6.0@sha256:26113779...` and the broker
+`ghcr.io/taipanbox/tokenfuse:v1.23.0@sha256:192cfc71...` from their published images, on loopback on a
+Debian 13 machine, the broker in `enforce` and `closed` against wardryx, in front of a stdlib Python MCP stub
+that logged every call. Mockryx built from this branch. The policy was the stacks' starter rules, then the
+block they seed, one rule at a time.
+
+| Policy | Scans | `mcp-secret-in-arguments` | `mcp-pii-in-arguments` | `mcp-ungranted-tool-held` | Exit |
+|---|---|---|---|---|---|
+| floor and `grant-drills` | block | passed | passed | passed | `0` |
+| floor and `grant-drills` | off | skipped_not_configured | skipped_not_configured | passed | `0` |
+| floor, no grants | off | failed: `-32004` | failed: `-32004` | failed on the drill identity's step | `1` |
+| starter rules only | off | skipped_not_configured | skipped_not_configured | skipped_not_configured | `0` |
+
+The refusal, as the broker wrote it: `blocked: tool "search_notes" requires approval (approval
+ap_628813828092ec92155db7b26ace4363) (policy "tool-hold" when_no_grant: no policy grants tool "search_notes"
+to agent "agent://ungranted.invalid/rehearsal/no-grant"; human approval required)`. Over all five runs the MCP
+stub logged nine `tools/call`, the count the table gives: every call the table lets through, and none it holds
+or refuses. Two runs of the first row left one row in `GET /v1/approvals`, so a drill in a nightly pipeline
+leaves one question for a person.
+
+**Red first.** Each new test was run against a planted fault in the drills and went red: the ungranted step
+speaking as a drill, `error_contains` dropped, `error_contains` widened to `requires approval`, the second step
+expecting the hold or taken away, the first step expecting a result, and a scan drill moved outside
+`grant-drills`. The first real run also found the report stopping inside the reason: a real approval id is 35
+bytes, and 120 bytes of `got` ended at `when_n...`. The broker's refusal now reaches the report whole.
 
 ## Method (the Hetzner campaigns above)
 

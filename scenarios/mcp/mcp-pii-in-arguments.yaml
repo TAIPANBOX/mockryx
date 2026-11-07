@@ -35,6 +35,12 @@
 # and shadow modes in a header and the broker does not. --fail-on-skip is the
 # operator's way to insist that blocking is on.
 #
+# WITH THE TOOL HOLD ON (wardryx v2.6.0, seeded by both stacks) this drill reads as it
+# did, and mcp-secret-in-arguments.yaml says why: the scan runs first, and with it off
+# the identity below passes the policy gate on grant-drills, so the drill reports
+# skipped_not_configured. A policy with no grant-drills holds the call: -32004 naming
+# when_no_grant, a Finding.
+#
 # WHAT THIS DOES NOT REHEARSE
 #
 #   - What the scanner can find. It matches an email address, a Luhn-valid card

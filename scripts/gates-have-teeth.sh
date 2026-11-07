@@ -271,6 +271,30 @@ assert not p.exists(), "the harness left a planted scenario behind"
 p.write_text("name: planted-mcp\nrequires: mcp-dlp\nsteps:\n  - name: asks\n    mcp:\n      method: tools/list\n    expect:\n      result: true\n")')" \
 	"must read as not configured"
 
+# invariant 18, the tool hold. A drill identity moved outside grant-drills is the
+# fault a stranger's box would show as a guardrail gap, and a hold drill that
+# loses its second step can no longer tell a floor with grants from one without.
+run_case "selftest: a scan drill speaks outside grant-drills" fail \
+	'./scripts/selftest.sh' \
+	"$(py 'edit("scenarios/mcp/mcp-pii-in-arguments.yaml", "agent_id: agent://mockryx.local/rehearsal/support-bot", "agent_id: agent://elsewhere.invalid/rehearsal/support-bot")')" \
+	"so a drill identity is being held"
+
+run_case "selftest: the hold drill loses the step that tells the two apart" fail \
+	'./scripts/selftest.sh' \
+	"$(py 'import re
+p = "scenarios/mcp/mcp-ungranted-tool-held.yaml"
+s = open(p).read()
+t = s[:s.index("  - name: a-drill-identity-under-grant-drills-goes-through")]
+assert t != s
+open(p, "w").write(t)')" \
+	"a floor that lost its grants must show up as a Finding"
+
+run_case "selftest: the hold drill is taken away" fail \
+	'./scripts/selftest.sh' \
+	"$(py 'import os
+os.remove("scenarios/mcp/mcp-ungranted-tool-held.yaml")')" \
+	"so the hold was not rehearsed at all"
+
 # invariant 2 for the game-day drills added on 2026-11-04: plants a drill that
 # expects the 200 a gateway whose provider never failed already returns.
 run_case "selftest: a game-day drill that cannot fail" fail \
