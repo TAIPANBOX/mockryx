@@ -125,6 +125,7 @@ func runRun(args []string) error {
 		apiKeyFlag     = fs.String("api-key", "", "x-api-key sent with every crafted request (default: $MOCKRYX_API_KEY); a value on the command line is on the process list, so prefer --api-key-file")
 		apiKeyFileFlag = fs.String("api-key-file", "", "file holding the x-api-key sent with every crafted request (default: $MOCKRYX_API_KEY_FILE); the preferred source, since the key is read from the file and stays off argv; the file must be owned by you at 0600 or stricter, or by root at 0640 or stricter; on Windows the owner rule is not made (a named limit)")
 		keyFileFlag    = fs.String("client-key-file", "", "file holding the gateway client key, sent as x-fuse-key to the gateway (default: $MOCKRYX_CLIENT_KEY_FILE); the key is read from the file, never from a flag value, so it stays off argv; the file must be owned by you at 0600 or stricter, or by root at 0640 or stricter; on Windows the owner rule is not made (a named limit)")
+		brokerKeyFlag  = fs.String("mcp-broker-key-file", "", "file holding the MCP broker's own key, sent as x-fuse-key to the broker and to no other service (default: $MOCKRYX_MCP_BROKER_KEY_FILE); a different key from the gateway client key; read from the file, never from a flag value, so it stays off argv; same owner rule as --client-key-file")
 		agentIDFlag    = fs.String("agent-id", "", "agent id every request presents, replacing each scenario's own (default: $MOCKRYX_AGENT_ID); under a client key it must be inside that key's namespace")
 		brokerFlag     = fs.String("mcp-broker", "", "MCP broker base URL that mcp steps are sent to (default: $MOCKRYX_MCP_BROKER); required only if a loaded scenario has an mcp step")
 		eventsFlag     = fs.String("events", "", "path to append sim_run/sim_finding/blast_radius_measured events to (default: $MOCKRYX_EVENTS_PATH)")
@@ -162,7 +163,14 @@ func runRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	identity := runner.Identity{ClientKey: clientKey, AgentID: firstNonEmpty(*agentIDFlag, env.AgentID)}
+	brokerKey, err := resolveBrokerKey(firstNonEmpty(*brokerKeyFlag, env.MCPBrokerKeyFile), env.MCPBrokerKey)
+	if err != nil {
+		return err
+	}
+	if brokerKey != "" && brokerKey == clientKey {
+		return fmt.Errorf("the MCP broker key and the gateway client key are the same secret: give the broker a key of its own, since the gateway's key must never be shown to the broker")
+	}
+	identity := runner.Identity{ClientKey: clientKey, BrokerKey: brokerKey, AgentID: firstNonEmpty(*agentIDFlag, env.AgentID)}
 	mcpBroker := firstNonEmpty(*brokerFlag, env.MCPBroker)
 	eventsPath := firstNonEmpty(*eventsFlag, env.EventsPath)
 	watchPaths := []string(watchFlag)
@@ -373,6 +381,20 @@ func resolveClientKey(keyFile, envValue string) (string, error) {
 		return "", fmt.Errorf("give the client key once: as a file (--client-key-file or $MOCKRYX_CLIENT_KEY_FILE) or as $MOCKRYX_CLIENT_KEY, not both")
 	case keyFile != "":
 		return config.ReadClientKeyFile(keyFile)
+	}
+	return envValue, nil
+}
+
+// resolveBrokerKey returns the MCP broker's key from the one place the operator
+// gave it: a key file, or the MOCKRYX_MCP_BROKER_KEY value. Both at once is
+// refused, as for the client key. Nothing configured is not an error: the
+// broker is then sent no key, as before.
+func resolveBrokerKey(keyFile, envValue string) (string, error) {
+	switch {
+	case keyFile != "" && envValue != "":
+		return "", fmt.Errorf("give the MCP broker key once: as a file (--mcp-broker-key-file or $MOCKRYX_MCP_BROKER_KEY_FILE) or as $MOCKRYX_MCP_BROKER_KEY, not both")
+	case keyFile != "":
+		return config.ReadMCPBrokerKeyFile(keyFile)
 	}
 	return envValue, nil
 }

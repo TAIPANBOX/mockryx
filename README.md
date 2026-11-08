@@ -467,6 +467,30 @@ same Windows limit. A gateway that echoes the x-api-key back does not get it
 into a report, an event or a finding: the key is masked as `***`, as the client
 key is.
 
+### The MCP broker's own key
+
+A TokenFuse MCP broker that sets `TOKENFUSE_MCP_KEYS` has a door of its own, and
+a call with no key at its door gets a `401` that is not JSON-RPC, which an `mcp`
+drill reports as a Finding. Two optional settings give the drill the broker's
+key:
+
+- **`--mcp-broker-key-file PATH`** or **`$MOCKRYX_MCP_BROKER_KEY_FILE`**: a file
+  holding the key on one line, under the same owner rule as the client key file.
+  mockryx sends it as `x-fuse-key` on the broker's JSON-RPC calls, and to nothing
+  else: not the gateway, and not the broker's `/healthz` reachability probe.
+- **`$MOCKRYX_MCP_BROKER_KEY`**: the same key as a value. Give the key one way
+  only: both at once is a usage error, exit `2`. There is no flag that takes the
+  key value, so the key never sits in the process arguments.
+
+This is a key of its own, never the gateway's client key. The client key still
+goes to the gateway alone, and the same secret given as both keys is refused
+before anything is sent, exit `2`. With neither setting the broker is sent no
+key, as before. The key is masked as `***` wherever a broker echoes it back, so
+it reaches no report, event or finding. On the broker's side, mint it as an
+entry of its own in `TOKENFUSE_MCP_KEYS` (`secret:key_id`), with a key id that
+names the drill, so a later reader of the broker's records can tell the drill's
+calls from an agent's.
+
 A refused credential is never a guardrail result. A `401`, or a `403` that
 names `identity_mismatch`, makes the scenario a `Finding` whose detail reads
 "the gateway refused the drill's credential", and the run stops at that first
@@ -858,6 +882,7 @@ export MOCKRYX_API_KEY_FILE=/run/secrets/mockryx-api-key   # optional, sent as x
 export MOCKRYX_MCP_BROKER=http://127.0.0.1:4200   # only needed when a loaded scenario has an mcp step
 export MOCKRYX_EVENTS_PATH=out/events.ndjson   # optional, opt-in telemetry
 export MOCKRYX_CLIENT_KEY_FILE=/run/secrets/mockryx-client-key   # only for a gateway that requires a client key
+export MOCKRYX_MCP_BROKER_KEY_FILE=/run/secrets/mockryx-mcp-broker-key   # only for a broker that sets TOKENFUSE_MCP_KEYS; never the client key
 export MOCKRYX_AGENT_ID=agent://example.org/agents/mockryx       # optional, the id that key is bound to
 ./bin/mockryx run ./scenarios
 

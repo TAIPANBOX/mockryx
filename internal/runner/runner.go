@@ -167,7 +167,7 @@ func RunWithBroker(s scenario.Scenario, gatewayURL, brokerURL, apiKey string, wa
 // each scenario's own. With a zero Identity it is RunWithBroker exactly.
 func RunWithIdentity(s scenario.Scenario, gatewayURL, brokerURL, apiKey string, id Identity, watcher Watcher) Result {
 	client := &http.Client{Timeout: httpTimeout}
-	tgt := target{gateway: gatewayURL, broker: brokerURL, apiKey: apiKey, clientKey: id.ClientKey, agentID: id.AgentID}
+	tgt := target{gateway: gatewayURL, broker: brokerURL, apiKey: apiKey, clientKey: id.ClientKey, brokerKey: id.BrokerKey, agentID: id.AgentID}
 
 	res := Result{Scenario: s.Name}
 	var findings []Finding
@@ -210,7 +210,7 @@ func RunWithIdentity(s scenario.Scenario, gatewayURL, brokerURL, apiKey string, 
 		}
 		if out.finding != nil {
 			out.finding.Scenario = s.Name
-			redactFinding(out.finding, id.ClientKey, apiKey)
+			redactFinding(out.finding, id.ClientKey, id.BrokerKey, apiKey)
 			findings = append(findings, *out.finding)
 		}
 		if out.refused {
@@ -244,6 +244,7 @@ type target struct {
 	broker    string
 	apiKey    string
 	clientKey string
+	brokerKey string
 	agentID   string
 }
 
@@ -587,7 +588,11 @@ func probeMCP(client *http.Client, tgt target, step scenario.Step, h scenario.He
 	req.Header.Set("accept", "application/json, text/event-stream")
 	// The gateway's client key is deliberately not sent here: the broker is a
 	// different service with its own door, and a key sent to it would be a key
-	// handed to something the operator did not give it to.
+	// handed to something the operator did not give it to. What the broker's
+	// door is shown is the broker key, a credential the operator made for this
+	// service (--mcp-broker-key-file), which is sent here and nowhere else.
+	// Empty means the operator configured none, and then no key goes at all.
+	setHeader(req, "x-fuse-key", tgt.brokerKey)
 	setHeader(req, "x-fuse-agent-id", h.AgentID)
 	setHeader(req, "x-fuse-run-id", h.RunID)
 
@@ -686,7 +691,7 @@ func brokerMessage(msg string) string {
 // send POSTs one crafted request to {gatewayURL}/v1/messages and returns the
 // response status, headers and (up to maxReply bytes of) body. clientKey, when
 // set, is sent as x-fuse-key; this is the only request that carries it besides
-// tool_check, and never the MCP broker's.
+// tool_check, and never the MCP broker's: the broker is sent its own key.
 func send(client *http.Client, gatewayURL, apiKey, clientKey string, req scenario.Request, h scenario.Headers) (int, http.Header, []byte, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -742,7 +747,7 @@ const redactMark = "***"
 
 // redactFinding removes each of keys from every text a Finding carries, so a
 // gateway that echoes a credential back in a reply cannot put it in a report or
-// an event. The keys are the secrets (the client key and the x-api-key); nothing
+// an event. The keys are the secrets (the client key, the broker key and the x-api-key); nothing
 // else is changed. An empty key is skipped, since replacing "" would mark every
 // position in the text.
 func redactFinding(f *Finding, keys ...string) {
@@ -826,5 +831,8 @@ func sanitizeForID(name string) string {
 // service; AgentID, when set, replaces the agent id every step sends.
 type Identity struct {
 	ClientKey string
+	// BrokerKey is the MCP broker's own door key, sent as x-fuse-key to the
+	// broker and to no other service. It is never the gateway's ClientKey.
+	BrokerKey string
 	AgentID   string
 }
