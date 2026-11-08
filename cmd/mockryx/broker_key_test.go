@@ -267,8 +267,7 @@ func TestRunCommandBrokerKeyNeverReachesTheReportOrTheEvents(t *testing.T) {
 	clearBrokerKeyEnv(t)
 	gw, _ := recordingGateway(t)
 	// A broker that echoes the key in every reply, as a non-protocol reply.
-	var broker *httptest.Server
-	broker = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			_, _ = w.Write([]byte("ok"))
 			return
