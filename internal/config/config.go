@@ -44,6 +44,14 @@ type Config struct {
 	// APIKeyFile is a path to a file holding the x-api-key, from
 	// MOCKRYX_API_KEY_FILE. The preferred source: a file keeps the key off argv.
 	APIKeyFile string
+	// MCPBrokerKey is the MCP broker's own x-fuse-key secret, from
+	// MOCKRYX_MCP_BROKER_KEY. It is a different credential from ClientKey: the
+	// broker has its own door (TOKENFUSE_MCP_KEYS), and the gateway's key never
+	// goes there (CLAUDE.md invariant 13).
+	MCPBrokerKey string
+	// MCPBrokerKeyFile is a path to a file holding the broker key, from
+	// MOCKRYX_MCP_BROKER_KEY_FILE. The preferred source: it keeps the key off argv.
+	MCPBrokerKeyFile string
 }
 
 // FromEnv reads MOCKRYX_GATEWAY, MOCKRYX_EVENTS_PATH, MOCKRYX_API_KEY,
@@ -59,6 +67,9 @@ func FromEnv() Config {
 		ClientKeyFile: os.Getenv("MOCKRYX_CLIENT_KEY_FILE"),
 		AgentID:       os.Getenv("MOCKRYX_AGENT_ID"),
 		APIKeyFile:    os.Getenv("MOCKRYX_API_KEY_FILE"),
+
+		MCPBrokerKey:     os.Getenv("MOCKRYX_MCP_BROKER_KEY"),
+		MCPBrokerKeyFile: os.Getenv("MOCKRYX_MCP_BROKER_KEY_FILE"),
 	}
 }
 
@@ -89,6 +100,13 @@ func ReadClientKeyFile(path string) (string, error) {
 // ReadClientKeyFile.
 func ReadAPIKeyFile(path string) (string, error) {
 	return readKeyFile(path, "API key")
+}
+
+// ReadMCPBrokerKeyFile reads the MCP broker's key from path, under the same
+// rules as ReadClientKeyFile (one key, owner rule, errors that never repeat the
+// contents).
+func ReadMCPBrokerKeyFile(path string) (string, error) {
+	return readKeyFile(path, "MCP broker key")
 }
 
 // readKeyFile holds the one set of rules both key files share. what names the
