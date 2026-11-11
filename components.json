@@ -64,6 +64,12 @@
           "MOCKRYX_MCP_BROKER": {
             "required": false
           },
+          "MOCKRYX_MCP_BROKER_KEY": {
+            "required": false
+          },
+          "MOCKRYX_MCP_BROKER_KEY_FILE": {
+            "required": false
+          },
           "MOCKRYX_WATCH_EVENTS": {
             "required": false
           }
