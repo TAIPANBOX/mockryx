@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-262-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-267-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-1%20(mvp)-success.svg)
 
@@ -136,7 +136,9 @@ times. Those three were `runaway-budget`, `wardryx-denied-tool` and `dlp-secret-
 that "0 gaps" covers. The scenarios written since were fired locally instead, on 2026-08-25 and again on
 2026-08-26 against a gateway, a Wardryx and a heraldyx built from each repository's current `main`. That
 run is not a clean sweep and is more useful for it: six of the eight then in `scenarios/` passed,
-`verdryx-quality-drift` reported its standing gap (nothing in Verdryx emits the event it waits for), and
+`verdryx-quality-drift` reported its standing gap (Verdryx writes `quality_drift` from its own drift
+checks over eval runs, under an eval run's id, never in reaction to a gateway request under the drill's
+run_id), and
 `injected-page` turned out to be unable to reach the guardrail it names at all, reporting "not
 configured" against a firewall that was enforcing. Both are written up, with the wire evidence, in
 [`VALIDATION.md`](VALIDATION.md). The two drills added after that, `token-flood` and `pii-in-prompt`,
@@ -178,7 +180,7 @@ real spend, remain the evidence for the harness itself.
 </div>
 
 The diagram above predates `verdryx-quality-drift`, `injected-page`, `reaction-chain-reaches-heraldyx`,
-`token-flood`, `pii-in-prompt`, `egress-after-untrusted-read`, the broker drills and the game-day drills
+`reaction-chain-reaches-wardryx`, `token-flood`, `pii-in-prompt`, `egress-after-untrusted-read`, the broker drills and the game-day drills
 below; it still shows the original five.
 
 Mockryx works in four steps:
@@ -197,7 +199,7 @@ Mockryx works in four steps:
    (`internal/events`), via `agent-stack-go/event.ChainedWriter`, so a fire
    drill leaves the same kind of audit trail as the guardrails it rehearses.
 
-Thirteen example scenarios ship in `scenarios/`, each rehearsing a different
+Fourteen example scenarios ship in `scenarios/`, each rehearsing a different
 guardrail, all loaded together by a plain `mockryx run ./scenarios`:
 
 | File | Rehearses | Requires | Expects |
@@ -213,7 +215,8 @@ guardrail, all loaded together by a plain `mockryx run ./scenarios`:
 | `injected-page.yaml` | An agent reads a web page that instructs it to exfiltrate data, then asks to run `http_post`; the firewall should refuse on the run's taint labels, not on the wording | `taint` | `200` for the history, then check-tool-call answers `deny`, and a `tokenfuse`/`taint_block` event within 10s |
 | `egress-after-untrusted-read.yaml` | The same tool, `http_post`, asked about before and after a web search has come back into the run: allowed while the run is clean, denied once it has read the web (OWASP LLM01:2025 and LLM06:2025) | `taint` | check-tool-call answers `allow`, then (after the history) `deny` |
 | `declared-tool-poisoning.yaml` | A request declares a tool whose description tells the model to call another tool first and not to mention it (OWASP LLM01:2025, the MCP tool poisoning shape). The request should be answered, not refused, and the firewall should then refuse `http_post` on the run's labels | `taint` | `200` for the request, then check-tool-call answers `deny`. A gateway that does not read declared tools answers `allow`, which is a Finding |
-| `reaction-chain-reaches-heraldyx.yaml` | The same denied tool-use attempt, chased three hops instead of one: the in-path refusal, Wardryx's own off-path record of it, and heraldyx's actual notification, all correlated by one run_id across two steps | `wardryx` | `403` + `x-fuse-wardryx: deny`, a `wardryx`/`policy_deny` event within 10s, then a `heraldyx`/`alert_sent` event within 20s |
+| `reaction-chain-reaches-heraldyx.yaml` | The same denied tool-use attempt, chased to the end of the chain: the in-path refusal, and heraldyx's notification for the run, which heraldyx writes only from Wardryx's own off-path record of the refusal. One step, so the request heraldyx reacts to and the wait for its notification are the same step (the file's header says why the two-step shape of v0.5.0 could report a false Finding) | `wardryx` | `403` + `x-fuse-wardryx: deny`, and a `heraldyx`/`alert_sent` event within 30s |
+| `reaction-chain-reaches-wardryx.yaml` | The middle link of the same chain on its own: the in-path refusal and Wardryx's own off-path record of it, so a broken chain names its link (no record fails this drill and the heraldyx one; a silent heraldyx fails only that one) | `wardryx` | `403` + `x-fuse-wardryx: deny`, and a `wardryx`/`policy_deny` event within 10s |
 | `allow-list-renamed-tool.yaml` | An agent whose allow-list names one tool by its exact name is asked to use the same tool under a renamed spelling; the renamed tool should be refused. A Wardryx that is wired but has no allow-list for the agent reports a Finding on the renamed step, and an outage reads as a pass on it unless the listed step also holds (see the file's header) | `wardryx` | `200` + `x-fuse-wardryx: allow` for the listed tool, then `403` + `x-fuse-wardryx: deny` for the renamed one |
 
 `dlp-secret-leak.yaml` uses `AKIAIOSFODNN7EXAMPLE`, AWS's own well-known,
@@ -549,6 +552,13 @@ environment variable, flag taking precedence:
 # ... or:
 export MOCKRYX_WATCH_EVENTS=/path/to/verdryx-events.ndjson,/path/to/idryx-events.ndjson
 ```
+
+A step's event check counts only a line stamped at or after the second in
+which that step's own request went out, so a line already on disk can never
+pass for a reaction to it. Wait for a reaction in the step that sends the
+request it reacts to: a later step of the same run refuses a reaction to an
+earlier step's request once that reaction lands in an earlier second, and a
+plane that dedups by run id (heraldyx does) never writes a second one.
 
 If any loaded scenario declares `expect.event` but no watch path was
 configured, `run` fails fast with a usage error (exit `2`) before sending a
@@ -990,7 +1000,7 @@ or unwritable events path never blocks a run.
 - [x] human + JSON report rendering, save/load (`mockryx report`)
 - [x] events: `sim_run` / `sim_finding` / `blast_radius_measured`, via `agent-stack-go/event.ChainedWriter` (SPEC 6.5 prev_hash chain), opt-in (`MOCKRYX_EVENTS_PATH`)
 - [x] CLI: `run` / `report` / `version`, flags in any position, differentiated exit codes (0/1/2) for CI gating
-- [x] thirteen shipped example scenarios in `scenarios/`: `runaway-budget` and `token-flood` (core Breaker: spend accumulated over a loop, and one call refused at reservation), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` and `pii-in-prompt` (DLP: a secret, and personal data when PII blocking is on), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction), `injected-page` and `egress-after-untrusted-read` (the agent firewall, taint labels not wording, through tool history and a `tool_check`), `reaction-chain-reaches-heraldyx` (Wardryx's in-path deny, its own off-path record, and heraldyx's actual notification, all three), `declared-tool-poisoning` (a poisoned tool description in a request's `tools[]`, read by the firewall through TokenFuse invariant 93, first released in TokenFuse v1.11.0), `allow-list-renamed-tool` (Wardryx's allow-list: a renamed tool is refused, not taken for the listed one); plus four game-day drills outside `scenarios/`, in `scenarios/game-day/`: `provider-outage.yaml` for a deliberately unreachable upstream, and `provider-5xx.yaml`, `provider-rate-limited.yaml` and `provider-timeout.yaml` for a provider that is up but failing, rehearsed against the local `scripts/provider-stub.go`, and the two broker drills in `scenarios/mcp/`, `mcp-secret-in-arguments` and `mcp-pii-in-arguments`, which need `--mcp-broker`
+- [x] fourteen shipped example scenarios in `scenarios/`: `runaway-budget` and `token-flood` (core Breaker: spend accumulated over a loop, and one call refused at reservation), `wardryx-denied-tool` / `on-behalf-of-forged-chain` / `approval-required` (Wardryx), `dlp-secret-leak` and `pii-in-prompt` (DLP: a secret, and personal data when PII blocking is on), `verdryx-quality-drift` (Wardryx + an async Verdryx reaction), `injected-page` and `egress-after-untrusted-read` (the agent firewall, taint labels not wording, through tool history and a `tool_check`), `reaction-chain-reaches-heraldyx` and `reaction-chain-reaches-wardryx` (Wardryx's in-path deny, then heraldyx's notification, and Wardryx's own off-path record, one drill each), `declared-tool-poisoning` (a poisoned tool description in a request's `tools[]`, read by the firewall through TokenFuse invariant 93, first released in TokenFuse v1.11.0), `allow-list-renamed-tool` (Wardryx's allow-list: a renamed tool is refused, not taken for the listed one); plus four game-day drills outside `scenarios/`, in `scenarios/game-day/`: `provider-outage.yaml` for a deliberately unreachable upstream, and `provider-5xx.yaml`, `provider-rate-limited.yaml` and `provider-timeout.yaml` for a provider that is up but failing, rehearsed against the local `scripts/provider-stub.go`, and the two broker drills in `scenarios/mcp/`, `mcp-secret-in-arguments` and `mcp-pii-in-arguments`, which need `--mcp-broker`
 - [x] `agent-stack-go` v2.0.2 pinned dependency, no local `replace`
 - [x] async reaction checks (`expect.event`): a scenario can require Verdryx/Idryx/Qryx to react off path, not just the in-path gateway response, watched by polling their agent-event NDJSON logs (`internal/watch`, `--watch-events` / `MOCKRYX_WATCH_EVENTS`); exercised by `scripts/selftest.sh` both ways (a matching event found, a missing one reported as a `Finding`), and shipped in `verdryx-quality-drift.yaml`
 - [ ] Later: additional built-in scenario packs, as new guardrails ship in TokenFuse / Wardryx

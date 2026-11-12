@@ -199,6 +199,18 @@ assert rows, "no catalog row for reaction-chain-reaches-heraldyx.yaml"
 open("README.md","w").write(s.replace(rows[0] + "\n", "", 1))')" \
 	"ships and is not in the README catalog table"
 
+# VALIDATION.md's count went past twenty on 2026-11-12, into the hyphenated
+# words. The count one below must not read as the right one, and neither must
+# the word's own last half: "twenty-one" is not "one".
+run_case "readme-numbers: VALIDATION.md's count one below what ships" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'import re
+s = open("VALIDATION.md").read()
+m = re.search(r"([A-Za-z-]+) scenarios ship now", s)
+assert m and m.group(1).lower() == "twenty-one", "VALIDATION.md no longer says twenty-one scenarios ship now"
+open("VALIDATION.md","w").write(s.replace(m.group(0), "Twenty scenarios ship now", 1))')" \
+	"VALIDATION.md says"
+
 run_case "readme-numbers: a catalog row for a scenario that does not ship" fail \
 	'./scripts/readme-numbers.sh' \
 	"$(py 'edit("README.md", "| `dlp-secret-leak.yaml` |", "| `dlp-secret-leek.yaml` |")')" \

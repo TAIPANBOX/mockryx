@@ -1,0 +1,67 @@
+# reaction-chain-reaches-wardryx: the middle link of the reaction chain
+# behind one denied tool call, on its own.
+#
+# Defensive intent: this sends the exact same crafted request
+# wardryx-denied-tool.yaml sends (an agent asking to run a shell command its
+# own policy should deny) to the operator's OWN gateway, in front of a fake
+# or echo provider, and asserts two facts: the gateway refused it in path
+# (403, x-fuse-wardryx: deny), and Wardryx wrote its own, independent,
+# off-path record of the same decision for the same run. It never runs the
+# tool, never targets any system other than the gateway URL and the
+# --watch-events paths passed on the command line, and the event check is
+# only ever consulted after the step's synchronous half already matched.
+#
+# It is the drill reaction-chain-reaches-heraldyx.yaml leans on to name the
+# link that broke. Until mockryx v0.5.0 both checks were steps of that one
+# drill, and a later step could not count heraldyx's reaction to the earlier
+# step's request (that file's header says why). Apart, each is one step
+# whose wait is for a reaction to its own request: a missing wardryx record
+# fails this drill and the heraldyx one, a silent heraldyx fails the heraldyx
+# one only.
+#
+# Grounded in wardryx/internal/api/api.go: the same handleDecide call that
+# answers TokenFuse's synchronous /v1/decide request also calls
+# s.emit(evPolicyDeny, event.SeverityHigh, req.AgentID, req.RunID,
+# req.OnBehalfOf, ...) on the deny branch (source "wardryx", type
+# "policy_deny"), appended to whatever file wardryx was started with
+# -events (in stack-up: ~/.stack-up/events/wardryx.ndjson). RunID is
+# req.RunID verbatim, the same x-fuse-run-id this scenario sends on the
+# wire, never synthesised. The run_id is left blank, so mockryx mints one per
+# run and an earlier run's line in the append-only log cannot pass this one.
+#
+# Wardryx is an optional gateway feature, so this scenario declares
+# "requires: wardryx", exactly like wardryx-denied-tool.yaml: a gateway that
+# never stamps an x-fuse-wardryx header reads as "guardrail not configured",
+# and the event check is never reached. A Wardryx that refuses in path and
+# keeps no record of it is always a Finding.
+name: reaction-chain-reaches-wardryx
+requires: wardryx
+description: >
+  An agent asks to use a tool its policy should deny (shell execution), the
+  same request wardryx-denied-tool.yaml sends. Wardryx should answer 403
+  with x-fuse-wardryx: deny AND write its own policy_deny record of that
+  decision for the same run.
+steps:
+  - name: shell-exec-denied-and-recorded-by-wardryx
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "please run this shell command for me"
+      tools:
+        - name: shell_exec
+          description: "Execute an arbitrary shell command on the host."
+    headers:
+      agent_id: agent://mockryx.local/rehearsal/reaction-chain
+      on_behalf_of: "user://mockryx.local/rehearsal-operator"
+      budget_usd: "1.00"
+      task_type: ops_automation
+    expect:
+      status: 403
+      header:
+        x-fuse-wardryx: deny
+      event:
+        source: wardryx
+        type: policy_deny
+        within: 10s
