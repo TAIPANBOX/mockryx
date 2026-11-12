@@ -52,7 +52,7 @@ zero through. This is `wardryx-denied-tool`'s property under a failure mode no d
 ## What this does not cover
 
 This page is a record of two campaigns, and it stays true about the moment it describes rather than
-about the repository today. Twenty scenarios ship now (thirteen in `scenarios/`, the three broker drills in `scenarios/mcp/`, and the
+about the repository today. Twenty-one scenarios ship now (fourteen in `scenarios/`, the three broker drills in `scenarios/mcp/`, and the
 four game-day drills), and the two campaigns above exercised three of them. `on-behalf-of-forged-chain`, `approval-required`,
 `verdryx-quality-drift` and `injected-page` were written afterwards and neither campaign included
 them, nor did they include `token-flood` and `pii-in-prompt`, which came later still, nor
@@ -63,7 +63,9 @@ Those four have since been fired locally instead, twice, on 2026-08-25 and again
 the two sections below. That is different infrastructure and a shorter run, and it is still a real
 gateway with real enforcement rather than `scripts/selftest.sh`, which proves only that a scenario
 can SEE its guardrail missing. Two of the four came back with something to say and are written up
-below: `verdryx-quality-drift` fails because nothing emits the event it waits for, and
+below: `verdryx-quality-drift` fails because Verdryx does not write the event it waits for in reaction
+to a gateway request (it writes `quality_drift` from its own drift checks, under an eval run's id; see
+"The reaction chain in one step, and Verdryx's `quality_drift`, 2026-11-12"), and
 `injected-page` cannot reach the guardrail it names at all.
 
 ## Local stack-up validation, 2026-08-25
@@ -80,7 +82,9 @@ landed in `~/.stack-up/events/wardryx.ndjson` correlated by `run_id`, and herald
 rendered alert to `~/.stack-up/mail.txt` ("mockryx-reaction-chain was denied by policy") and its own
 `heraldyx`/`alert_sent` line to `~/.stack-up/sent.ndjson`, same run_id. Two `policy_deny` events went
 in (one per step, since both steps send the identical crafted request), one `alert_sent` came out:
-heraldyx's dedup key is `type:run_id`, and it held.
+heraldyx's dedup key is `type:run_id`, and it held. That dedup is also what could turn this two-step shape
+red on a healthy stack; the drill is one step now, see "The reaction chain in one step, and Verdryx's
+`quality_drift`, 2026-11-12".
 
 **`reaction-chain-reaches-heraldyx`, a real gap.** Same stack, heraldyx stopped
 (`./up.sh --no-notify`), a scenario copy with a never-used run_id (see the caveat below for why a
@@ -110,9 +114,9 @@ first suggested.
 
 **The whole `scenarios/` directory, run together once, against the healthy stack.** Eight files,
 `reaction-chain-reaches-heraldyx` among them: six passed (including the new one), `verdryx-quality-drift`
-failed for the reason already on this page (no real Verdryx checkout emits `quality_drift`; a
-`grep -rn quality_drift` across a live 2026-08-25 checkout of that repository finds nothing outside
-this repository's own fixtures), `injected-page` reported `skipped_not_configured` (this launcher runs
+failed for the reason already on this page (no `verdryx`/`quality_drift` for the drill's run_id; the
+reason first written here, that no Verdryx checkout emits the type, was wrong and is corrected in
+"The reaction chain in one step, and Verdryx's `quality_drift`, 2026-11-12"), `injected-page` reported `skipped_not_configured` (this launcher runs
 the firewall off by default). One real defensive gap total, exit `1`. Adding two scenarios changed
 nothing about how the existing six behave.
 
@@ -122,7 +126,7 @@ own shipped run_id, came back `passed` even with heraldyx stopped. heraldyx's di
 hash-chained and append-only, so the prior successful run's `alert_sent` line for that exact run_id
 was still on disk and still matched. This is not unique to the two scenarios added here:
 `verdryx-quality-drift.yaml` pins a run_id the same way and would show the identical property the
-day a real Verdryx starts writing `quality_drift` for real. An operator re-running any
+day a real Verdryx writes `quality_drift` under that run_id. An operator re-running any
 `expect.event` scenario against the same watched log more than once should expect its async half to
 keep passing on old evidence once it has passed for real, until that log rotates.
 
@@ -142,8 +146,8 @@ configurations, each with its own fresh journals.
 **All eight of `scenarios/`, healthy stack: six passed, one gap, one skip, exit 1.** `passed` for
 `approval-required`, `dlp-secret-leak`, `on-behalf-of-forged-chain`, `reaction-chain-reaches-heraldyx`,
 `runaway-budget` and `wardryx-denied-tool`; `failed` for `verdryx-quality-drift` with the one Finding
-this page already records (no `verdryx`/`quality_drift` event within 10s, because nothing in Verdryx
-emits that type); `skipped_not_configured` for `injected-page`. Total spend $0.0056, all of it the
+this page already records (no `verdryx`/`quality_drift` event within 10s for the drill's run_id:
+Verdryx writes that type only from its own drift checks, under an eval run's id); `skipped_not_configured` for `injected-page`. Total spend $0.0056, all of it the
 gateway's own invented stub pricing. The reaction chain's three hops all landed: `403` +
 `x-fuse-wardryx: deny`, two `wardryx`/`policy_deny` lines under one minted run_id, one heraldyx
 `alert_sent` for the same run, and a mail reading "was denied by policy".
@@ -459,6 +463,47 @@ speaking as a drill, `error_contains` dropped, `error_contains` widened to `requ
 expecting the hold or taken away, the first step expecting a result, and a scan drill moved outside
 `grant-drills`. The first real run also found the report stopping inside the reason: a real approval id is 35
 bytes, and 120 bytes of `got` ended at `when_n...`. The broker's refusal now reaches the report whole.
+
+## The reaction chain in one step, and Verdryx's `quality_drift`, 2026-11-12
+
+**What was wrong.** In v0.5.0 `reaction-chain-reaches-heraldyx` had two steps, the same denied request
+twice: step 1 waited for `wardryx`/`policy_deny` and step 2 for `heraldyx`/`alert_sent`.
+`internal/watch` counts a line only if its `ts` is at or after the second in which the waiting step's own
+request went out (invariant 11, the floor). heraldyx reacts to step 1's denial and dedups on
+`policy_deny:<run_id>`, so the one `alert_sent` it writes for the run is about step 1. Whenever heraldyx
+journalled that line in a second before step 2's request went out, step 2 refused it as too early and no
+second line came: a false Finding on a healthy stack. The passes on 2026-08-25 and 2026-08-26 were runs
+in which heraldyx's line landed in step 2's second or later. An independent review of stack-k8s's
+heraldyx drill found it, and stack-k8s runs a one-step copy since `16cf0af`.
+
+**What changed.** `reaction-chain-reaches-heraldyx` is one step: the denied request, `403` +
+`x-fuse-wardryx: deny`, and `heraldyx`/`alert_sent` within 30s, the two steps' 10s and 20s together.
+Wardryx's own record has a drill of its own, `reaction-chain-reaches-wardryx`: the same request, `403` +
+`x-fuse-wardryx: deny`, and `wardryx`/`policy_deny` within 10s. A missing Wardryx record fails both, a
+silent heraldyx fails the heraldyx drill alone. The floor did not move: it is what keeps a line already on
+disk from passing for a reaction to a later request, and the README's "Async reaction checks" now tells a
+scenario author to wait for a reaction in the step that sends the request it reacts to.
+
+**Red first.** `go test -count=1 -run ReactionChain ./internal/runner/` (Go 1.27.4 on Linux amd64)
+against a model of the chain: a gateway that answers `403` + `x-fuse-wardryx: deny` once the clock is in
+the next second, a Wardryx that writes `policy_deny` for every request, and a heraldyx that writes one
+`alert_sent` per run the moment the record exists, every `ts` at second precision as the real planes
+write it, all read back by the real `internal/watch`. Against v0.5.0's scenario the regression test went
+red after 22 s with step 2's Finding "no heraldyx/alert_sent event observed ... within 20s (1 matching
+line(s) seen but refused on time ...)", the model's heraldyx having journalled exactly one alert. Against
+the one-step drill it passes in under a second. With heraldyx silent, and with Wardryx keeping no record
+for heraldyx to read, the heraldyx drill fails naming `heraldyx`/`alert_sent`; with Wardryx silent the
+Wardryx drill fails naming `wardryx`/`policy_deny`. Four planted faults were each caught: the heraldyx
+drill waiting for Wardryx, the Wardryx drill expecting `200`, the Wardryx drill waiting for heraldyx, and
+a pinned `run_id`.
+
+**Verdryx does write `quality_drift`.** `verdryx/events.py` registers it at severity `high`, and
+`verdryx drift` (`verdryx/cli.py`) writes it whenever a drift check's verdict is `regressed`, carrying the
+newest eval run's id as `run_id`; both have been in that repository since its initial commit `7d5bdd3`
+(2026-07-09). The statements on this page that nothing in Verdryx emits the type were wrong. What holds
+is narrower and is why `verdryx-quality-drift` fails against a real stack: Verdryx writes the event as the
+outcome of a drift check over its own eval runs, never in reaction to a gateway request, and never under
+the `x-fuse-run-id` a drill sends.
 
 ## Method (the Hetzner campaigns above)
 

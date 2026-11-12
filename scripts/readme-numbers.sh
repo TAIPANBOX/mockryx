@@ -55,18 +55,21 @@ fi
 # repeated defect and the reason this script exists at all.
 #
 # Written as a WORD there rather than a digit, because it reads as prose, so
-# the check maps the words it may be. A count past twenty would need a digit and
-# would fail here loudly rather than silently stop matching. The list stopped at
-# ten until 2026-10-12, when the eleventh scenario (counting game-day) arrived
-# and this gate, correctly, refused to guess the spelling.
+# the check maps the words it may be. A count past twenty-nine would need a
+# digit and would fail here loudly rather than silently stop matching. The list
+# stopped at ten until 2026-10-12, when the eleventh scenario (counting game-day)
+# arrived and this gate, correctly, refused to guess the spelling, and at twenty
+# until 2026-11-12, when the twenty-first did the same. A hyphen does not count
+# as the edge of a word, so "twenty-one" can never pass for "one".
 scen_actual=$(find scenarios -name '*.yaml' -type f | wc -l | tr -d ' ')
-WORDS=(zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty)
+WORDS=(zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty
+	twenty-one twenty-two twenty-three twenty-four twenty-five twenty-six twenty-seven twenty-eight twenty-nine)
 scen_word="${WORDS[$scen_actual]:-}"
 if [ -z "$scen_word" ]; then
-	note "there are $scen_actual scenarios and this check only knows how to spell up to twenty"
+	note "there are $scen_actual scenarios and this check only knows how to spell up to twenty-nine"
 	note "  write the number as a digit in VALIDATION.md and teach this script to read it"
-elif ! grep -qiE "^${scen_word} scenarios ship now|[^a-z]${scen_word} scenarios ship now" VALIDATION.md; then
-	found=$(grep -oiE '[a-z]+ scenarios ship now' VALIDATION.md | head -1)
+elif ! grep -qiE "(^|[^a-z-])${scen_word} scenarios ship now" VALIDATION.md; then
+	found=$(grep -oiE '[a-z-]+ scenarios ship now' VALIDATION.md | head -1)
 	if [ -z "$found" ]; then
 		note "VALIDATION.md no longer says how many scenarios ship, so this check has nothing to compare against"
 		note "  it said '<n> scenarios ship now'; if you reworded it, update this script in the same commit"
@@ -140,10 +143,10 @@ fi
 cat_n=$(find scenarios -maxdepth 1 -name '*.yaml' -type f | wc -l | tr -d ' ')
 cat_word="${WORDS[$cat_n]:-}"
 if [ -z "$cat_word" ]; then
-	note "there are $cat_n scenarios in scenarios/ and this check only knows how to spell up to twenty"
+	note "there are $cat_n scenarios in scenarios/ and this check only knows how to spell up to twenty-nine"
 	note "  write the number as a digit in README.md and teach this script to read it"
-elif ! grep -qiE "^${cat_word} example scenarios ship in|[^a-z]${cat_word} example scenarios ship in" "$readme"; then
-	found=$(grep -oiE '[a-z]+ example scenarios ship in' "$readme" | head -1)
+elif ! grep -qiE "(^|[^a-z-])${cat_word} example scenarios ship in" "$readme"; then
+	found=$(grep -oiE '[a-z-]+ example scenarios ship in' "$readme" | head -1)
 	if [ -z "$found" ]; then
 		note "the README no longer says how many example scenarios ship, so this check has nothing to compare against"
 		note "  it said '<n> example scenarios ship in \`scenarios/\`'; if you reworded it, update this script in the same commit"
@@ -192,9 +195,9 @@ mcp_n=$(find scenarios/mcp -maxdepth 1 -name '*.yaml' -type f 2>/dev/null | wc -
 mcp_word="${WORDS[$mcp_n]:-}"
 if [ "$mcp_n" -gt 0 ]; then
 	if [ -z "$mcp_word" ]; then
-		note "there are $mcp_n broker drills in scenarios/mcp/ and this check only knows how to spell up to twenty"
-	elif ! grep -qiE "(^|[^a-z])${mcp_word} drills rehearse the MCP credential broker" "$readme"; then
-		found=$(grep -oiE '[a-z]+ drills rehearse the MCP credential broker' "$readme" | head -1)
+		note "there are $mcp_n broker drills in scenarios/mcp/ and this check only knows how to spell up to twenty-nine"
+	elif ! grep -qiE "(^|[^a-z-])${mcp_word} drills rehearse the MCP credential broker" "$readme"; then
+		found=$(grep -oiE '[a-z-]+ drills rehearse the MCP credential broker' "$readme" | head -1)
 		if [ -z "$found" ]; then
 			note "the README no longer says how many broker drills ship, so this check has nothing to compare against"
 			note "  it said '<n> drills rehearse the MCP credential broker'; if you reworded it, update this script in the same commit"

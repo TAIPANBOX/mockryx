@@ -172,7 +172,7 @@ an absent invariant.
    mutations that changed no bytes, and three of the five had been verified by
    hand against the same gate minutes earlier. So every mutation asserts it
    applied: a case whose edit changed nothing is a failure here, not a pass.
-   *(gate: `scripts/gates-have-teeth.sh`, 53 cases: real faults each gate must
+   *(gate: `scripts/gates-have-teeth.sh`, 54 cases: real faults each gate must
    catch, non-faults they must not, and subjects taken away entirely, where the
    gate must say it measured nothing rather than report OK.
    `selftest.sh` gets few cases rather than many because it builds the binary
