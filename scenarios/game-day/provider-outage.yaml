@@ -38,11 +38,11 @@
 #     you that; see "Defensive intent" in README.md.
 #   - Any operator-configurable "degrade mode". There is no policy knob in
 #     tokenfuse for how it should behave on an unreachable upstream: today it
-#     does exactly one thing, unconditionally (see step 1). This drill pins
+#     does exactly one thing, unconditionally (see step 2). This drill pins
 #     that one behaviour as a regression guard, not as proof of a
 #     configuration an operator chose.
 #
-# STEP 1: DOES THE GATEWAY DEGRADE CLEANLY
+# STEP 2: DOES THE GATEWAY DEGRADE CLEANLY
 #
 # Grounded in tokenfuse/crates/gateway/src/proxy.rs: when
 # HttpProvider::send returns Err, the managed call path (after the budget
@@ -54,9 +54,18 @@
 # response the other scenarios in this repository assert on. That absence is
 # why this drill cannot use "requires:" (see the last section), and it is not
 # itself a gap: the record of the failure is written to the event log rather
-# than stamped on the response, which is step 2's subject.
+# than stamped on the response, which is step 1's subject.
 #
-# STEP 2: DOES THE REFUSAL REACH THE RECORD, AND DOES ANYBODY GET TOLD
+# STEP 1: DOES THE REFUSAL REACH THE RECORD, AND DOES ANYBODY GET TOLD
+#
+# It is the FIRST step although the chain's order puts it second. heraldyx
+# mails once per dependency_failed:<run_id>, about the run's first failed
+# call, and mockryx counts a reaction only from the second its own step's
+# request went out (internal/watch), so the step that waits for that mail
+# must be the one whose call heraldyx reacts to. Until 2026-11-12 it was the
+# second, and a notifier quick enough to journal before the second call went
+# out read as a gap (VALIDATION.md). Step 2 sends the same call and holds the
+# clean degrade on its own.
 #
 # This is asserted mechanically, against the real dispatch journal
 # reaction-chain-reaches-heraldyx.yaml already proves this mechanism reaches
@@ -105,7 +114,7 @@
 # exactly what lets "requires:" tell a genuine gap apart from a feature the
 # operator simply has not turned on (README, "Findings vs. guardrail not
 # configured"). This drill's precondition, an unreachable upstream, has no
-# such header: step 1's own grounding above shows upstream_error's response
+# such header: step 2's own grounding above shows upstream_error's response
 # carries none. So "requires:" cannot express it, and there is no honest way
 # to make a routine `mockryx run ./scenarios` skip this file on an ordinary
 # day when nobody has broken anything on purpose. Rather than invent a
@@ -139,20 +148,6 @@ description: >
   a human would have been told. Both held on 2026-08-26; before that the
   second did not, and this drill is what said so.
 steps:
-  - name: unreachable-upstream-degrades-cleanly
-    request:
-      model: claude-haiku
-      max_tokens: 50
-      messages:
-        - role: user
-          content: "please pull up this afternoon's ticket queue for me"
-    headers:
-      agent_id: agent://mockryx.local/rehearsal/game-day
-      on_behalf_of: "user://mockryx.local/rehearsal-operator"
-      budget_usd: "1.00"
-      task_type: game_day
-    expect:
-      status: 502
   - name: does-heraldyx-hear-about-it
     request:
       model: claude-haiku
@@ -171,3 +166,17 @@ steps:
         source: heraldyx
         type: alert_sent
         within: 15s
+  - name: unreachable-upstream-degrades-cleanly
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "please pull up this afternoon's ticket queue for me"
+    headers:
+      agent_id: agent://mockryx.local/rehearsal/game-day
+      on_behalf_of: "user://mockryx.local/rehearsal-operator"
+      budget_usd: "1.00"
+      task_type: game_day
+    expect:
+      status: 502
