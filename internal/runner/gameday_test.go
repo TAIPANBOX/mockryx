@@ -27,6 +27,16 @@ import (
 // dayChain is the gateway-and-notifier model. Each field is a way a real chain
 // can break, so a drill is shown to fail on each one and to pass when none is
 // set.
+//
+// Its notifier is as quick as a real one can be and dedups the way the real
+// one does: heraldyx mails once per dependency_failed:<run_id>, so it journals
+// ONE alert_sent per run, the moment the run's first dependency_failed exists,
+// and the gateway answers only once the clock has moved into the next second.
+// A drill's later request for the same run therefore goes out in a later
+// second than that alert's ts, and mockryx counts a reaction only from the
+// second its own step's request went out (internal/watch). That timing made
+// the drills of v0.5.0, which waited for heraldyx in their second step, refuse
+// the one alert heraldyx would ever write for the run.
 type dayChain struct {
 	t        *testing.T
 	provider string // the stub's URL
@@ -41,6 +51,7 @@ type dayChain struct {
 	silentNotifier bool
 
 	mu         sync.Mutex
+	alerted    map[string]int
 	bus        *event.ChainedWriter
 	notices    *event.ChainedWriter
 	busPath    string
@@ -50,7 +61,7 @@ type dayChain struct {
 func newDayChain(t *testing.T, providerURL string) (*dayChain, *httptest.Server) {
 	t.Helper()
 	dir := t.TempDir()
-	c := &dayChain{t: t, provider: providerURL,
+	c := &dayChain{t: t, provider: providerURL, alerted: map[string]int{},
 		busPath:    filepath.Join(dir, "gateway-events.ndjson"),
 		noticePath: filepath.Join(dir, "heraldyx-sent.ndjson")}
 	var err error
@@ -100,10 +111,18 @@ func (c *dayChain) handle(w http.ResponseWriter, r *http.Request) {
 	if status >= 500 || status == 408 || status == 429 || status == 404 || status == 400 {
 		if !c.silentBus {
 			c.write(c.bus, "tokenfuse", "dependency_failed", "high", agent, run)
-			if !c.silentNotifier {
+			c.mu.Lock()
+			first := c.alerted[run] == 0
+			c.alerted[run]++
+			c.mu.Unlock()
+			if !c.silentNotifier && first {
 				c.write(c.notices, "heraldyx", "alert_sent", "high", agent, run)
 			}
 		}
+		// Answer in the next second, so the drill's next request for this run
+		// cannot share a second with anything journaled above.
+		now := time.Now()
+		time.Sleep(time.Until(now.Truncate(time.Second).Add(time.Second + 50*time.Millisecond)))
 	}
 	w.WriteHeader(status)
 }
@@ -200,9 +219,16 @@ func TestProviderDrillsNameTheMissingEventWhenTheBusStaysSilent(t *testing.T) {
 			if res.Status != StatusFailed {
 				t.Fatalf("status %s with nothing on the bus, want failed", res.Status)
 			}
-			f := res.Findings[0]
-			if f.ExpectEventSource != "tokenfuse" || f.ExpectEventType != "dependency_failed" {
-				t.Errorf("finding names %s/%s, want tokenfuse/dependency_failed", f.ExpectEventSource, f.ExpectEventType)
+			// heraldyx, which reads only the bus, is silent too, so its step has a
+			// Finding of its own; the bus's own Finding must still be there.
+			var named bool
+			for _, f := range res.Findings {
+				if f.ExpectEventSource == "tokenfuse" && f.ExpectEventType == "dependency_failed" {
+					named = true
+				}
+			}
+			if !named {
+				t.Errorf("no finding names tokenfuse/dependency_failed: %+v", res.Findings)
 			}
 		})
 	}
@@ -235,6 +261,52 @@ func TestProviderDrillsAreNeverSkippedAsNotConfigured(t *testing.T) {
 	for _, d := range providerDrills {
 		if req := loadDayDrill(t, d.file).Requires; req != "" {
 			t.Errorf("%s declares requires: %q, so a miss could read as not configured", d.file, req)
+		}
+	}
+}
+
+// The outage drill, end to end: an upstream nothing listens on, so the
+// gateway's call is refused at once and the model answers 502, records the
+// failure and lets its notifier mail the run.
+func TestProviderOutageDrillPassesWhenTheWholeChainHolds(t *testing.T) {
+	closed := httptest.NewServer(http.NotFoundHandler())
+	dead := closed.URL
+	closed.Close()
+	chain, gw := newDayChain(t, dead)
+	drill := loadDayDrill(t, "provider-outage.yaml")
+	for i := range drill.Steps {
+		if ev := drill.Steps[i].Expect.Event; ev != nil {
+			ev.Within = time.Second
+		}
+	}
+	res := Run(drill, gw.URL, "", chain.watcher())
+	if res.Status != StatusPassed {
+		t.Fatalf("status %s, findings %+v", res.Status, res.Findings)
+	}
+}
+
+// heraldyx mails once per run, about the run's first failure. A step that
+// waits for that mail must therefore be the step whose request heraldyx
+// reacts to, the first one: a later step's own floor (internal/watch) refuses
+// an alert stamped before its request went out, and no second alert comes.
+func TestGameDayDrillsWaitForHeraldyxInTheirFirstStepOnly(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join("..", "..", "scenarios", "game-day", "*.yaml"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no game-day drills found (%v), so this measured nothing", err)
+	}
+	for _, f := range files {
+		s := loadDayDrill(t, filepath.Base(f))
+		var waits []int
+		for i, st := range s.Steps {
+			if st.Headers.RunID != "" {
+				t.Errorf("%s step %q pins run_id %q; a pinned id lets an earlier run's line pass this one", s.Name, st.Name, st.Headers.RunID)
+			}
+			if ev := st.Expect.Event; ev != nil && ev.Source == "heraldyx" {
+				waits = append(waits, i)
+			}
+		}
+		if len(waits) != 1 || waits[0] != 0 {
+			t.Errorf("%s waits for heraldyx in step(s) %v, want the first step and no other", s.Name, waits)
 		}
 	}
 }

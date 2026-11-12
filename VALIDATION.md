@@ -505,6 +505,30 @@ is narrower and is why `verdryx-quality-drift` fails against a real stack: Verdr
 outcome of a drift check over its own eval runs, never in reaction to a gateway request, and never under
 the `x-fuse-run-id` a drill sends.
 
+## The game-day drills wait for heraldyx in their first step, 2026-11-12
+
+**What was wrong.** The same shape as the reaction chain above, in the four game-day drills. Each sent the
+same call twice and waited for `heraldyx`/`alert_sent` in step 2. The gateway writes `dependency_failed` for
+every failed call, and heraldyx mails once per `dependency_failed:<run_id>`, so the one alert it writes for
+the run is about step 1's call. A notifier quick enough to journal it in a second before step 2's call went
+out was refused by step 2's floor, and no second alert came. The model in `internal/runner/gameday_test.go`
+did not dedup, so it wrote a fresh alert for step 2's call and never showed it.
+
+**What changed.** In `provider-5xx`, `provider-rate-limited`, `provider-timeout` and `provider-outage` the
+step that waits for `heraldyx`/`alert_sent` is now step 1, the call heraldyx reacts to. Step 2 sends the
+same call and waits for the gateway's `dependency_failed` (the outage drill's step 2 holds the clean `502`
+alone). Both steps still check the status, and each check still has a Finding of its own: the runner goes
+on to step 2 after a Finding in step 1. No scenario was added and the floor did not move.
+
+**Red first.** `go test -count=1 -run 'ProviderDrill|ProviderOutage|GameDay' ./internal/runner/` (Go 1.27.4
+on Linux amd64). The model's heraldyx now writes one `alert_sent` per run, the moment the run's first
+`dependency_failed` exists, and the gateway answers once the clock is in the next second. Against the drills
+as v0.5.0 ships them, all four went red on `heraldyx`/`alert_sent` with "1 matching line(s) seen but refused
+on time", and `TestGameDayDrillsWaitForHeraldyxInTheirFirstStepOnly` found heraldyx waited for in the second step of each. With
+the steps reordered all pass, and the silent-bus, silent-notifier and hidden-failure cases still fail with
+the Finding they name. Three planted faults were each caught: `provider-5xx` with its steps back in the old order, a
+pinned `run_id` in `provider-outage`, and `provider-timeout` waiting for heraldyx in both steps.
+
 ## Method (the Hetzner campaigns above)
 
 Disposable Hetzner VPS boxes (deleted after each run), Mockryx driving a real gateway configured with a

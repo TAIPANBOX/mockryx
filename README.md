@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/mockryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-267-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-269-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-1%20(mvp)-success.svg)
 
@@ -339,12 +339,16 @@ ordinary day. Run them deliberately, for the duration of a scheduled game day.
 | `provider-rate-limited` | throttles, answers `429` | `429` | the same two |
 | `provider-timeout` | times out, answers `504` after a delay | `504` | the same two |
 
-The three failing-provider drills check the chain in its order: the call comes
-back with the provider's own status, the gateway puts one `dependency_failed`
-for that run on the bus (`expect.event`, source `tokenfuse`), and the run
-reaches a person (`expect.event`, source `heraldyx`, type `alert_sent`). A
-`Finding` names the link that is missing: the status the agent received, the
-event the bus never carried, or the notice nobody sent.
+The three failing-provider drills check three links: the call comes back with
+the provider's own status, the gateway puts a `dependency_failed` for that run on
+the bus (`expect.event`, source `tokenfuse`), and the run reaches a person
+(`expect.event`, source `heraldyx`, type `alert_sent`). A `Finding` names the
+link that is missing: the status the agent received, the event the bus never
+carried, or the notice nobody sent. The notice is waited for in the first step,
+because heraldyx mails once per run about the run's first failed call, and a
+later step counts only what was written after its own call went out (see
+"Async reaction checks"); the second step sends the same call and waits for the
+bus.
 
 **The provider is a local stub, never a real one.** Mockryx cannot make a
 provider fail and does not try. This repository ships the stand-in,

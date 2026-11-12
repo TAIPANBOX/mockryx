@@ -22,6 +22,20 @@ Feature: A drill rehearses what the chain does when the provider fails
     When the drill runs
     Then the drill passes
 
+  @bound:TestProviderOutageDrillPassesWhenTheWholeChainHolds
+  Scenario: The outage drill passes when an unreachable upstream degrades and a person is told
+    Given a gateway whose provider refuses the connection
+    And the gateway answers 502, records a dependency_failed and a person is told
+    When the outage drill runs
+    Then the drill passes
+
+  @bound:TestGameDayDrillsWaitForHeraldyxInTheirFirstStepOnly
+  Scenario: Each game-day drill waits for the notice in the step the notifier reacts to
+    Given the notifier mails once per run, about the run's first failure
+    When the game-day drills are read
+    Then each waits for heraldyx's alert_sent in its first step and in no other
+    And no step pins a run id
+
   @bound:TestProviderDrillsExpectTheStatusTheirStubAnswers
   Scenario: Each drill expects the status its stub answers
     Given the three provider failure drills and the stub modes they name

@@ -29,30 +29,24 @@
 # Steps 2 and 3 read the watched event files, so a run without them exits 2
 # before anything is sent. A Finding here means the chain that tells a human
 # their provider is failing has broken since.
+#
+# THE TWO STEPS SEND THE SAME CALL, AND HERALDYX IS WAITED FOR IN THE FIRST
+#
+# heraldyx mails once per dependency_failed:<run_id>, about the run's first
+# failure, and mockryx counts a reaction only from the second its own step's
+# request went out (internal/watch). So the step that waits for heraldyx's
+# alert_sent (check 3) comes first: its call is the one heraldyx reacts to.
+# The second step sends the same call and waits for the gateway's
+# dependency_failed (check 2), which the gateway writes for every call. Both
+# steps hold check 1. Until 2026-11-12 the order was the other way round, and a
+# notifier quick enough to journal before the second call went out read as a
+# gap (VALIDATION.md).
 name: provider-timeout-game-day
 description: >
   The provider answers 504 through the operator's own gateway (a provider that times out).
   The call should come back with that status, the gateway should record a
   dependency_failed for the run, and the run should reach heraldyx.
 steps:
-  - name: the-agents-call-gets-the-providers-own-status
-    request:
-      model: claude-haiku
-      max_tokens: 50
-      messages:
-        - role: user
-          content: "please pull up this afternoon's ticket queue for me"
-    headers:
-      agent_id: agent://mockryx.local/rehearsal/game-day-timeout
-      on_behalf_of: "user://mockryx.local/rehearsal-operator"
-      budget_usd: "1.00"
-      task_type: game_day_provider_timeout
-    expect:
-      status: 504
-      event:
-        source: tokenfuse
-        type: dependency_failed
-        within: 10s
   - name: does-heraldyx-hear-about-it
     request:
       model: claude-haiku
@@ -71,3 +65,21 @@ steps:
         source: heraldyx
         type: alert_sent
         within: 15s
+  - name: the-agents-call-gets-the-providers-own-status
+    request:
+      model: claude-haiku
+      max_tokens: 50
+      messages:
+        - role: user
+          content: "please pull up this afternoon's ticket queue for me"
+    headers:
+      agent_id: agent://mockryx.local/rehearsal/game-day-timeout
+      on_behalf_of: "user://mockryx.local/rehearsal-operator"
+      budget_usd: "1.00"
+      task_type: game_day_provider_timeout
+    expect:
+      status: 504
+      event:
+        source: tokenfuse
+        type: dependency_failed
+        within: 10s
