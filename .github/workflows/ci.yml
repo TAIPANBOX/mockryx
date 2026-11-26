@@ -31,7 +31,20 @@ jobs:
           go install honnef.co/go/tools/cmd/staticcheck@2026.2.1
           staticcheck ./...
       - name: test
-        run: go test -race ./...
+        run: go test -race -coverprofile="$RUNNER_TEMP/coverage.out" -covermode=atomic ./...
+      # Total coverage of the run above against .coverage-floor, printed in
+      # the job summary. The profile lives in RUNNER_TEMP so the tree stays
+      # clean for gates-have-teeth.sh.
+      - name: coverage is not below the floor
+        run: |
+          go tool cover -func="$RUNNER_TEMP/coverage.out" > "$RUNNER_TEMP/coverage.txt"
+          ./scripts/coverage-floor.sh check "$RUNNER_TEMP/coverage.txt"
+      - name: the coverage floor only rises
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF"
+          git show FETCH_HEAD:.coverage-floor > "$RUNNER_TEMP/base-floor" 2>/dev/null || rm -f "$RUNNER_TEMP/base-floor"
+          ./scripts/coverage-floor.sh ratchet "$RUNNER_TEMP/base-floor"
       - name: build
         run: go build ./...
       - name: dependency list is pinned
