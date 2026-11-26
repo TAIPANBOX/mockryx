@@ -463,3 +463,7 @@ codes and every exported signature identical.
 - Nothing paid or metered gets enabled without telling the user first and
   getting agreement.
 - Do not delete or revoke keys, tokens, or certificates on your own initiative.
+
+## Coverage floor
+
+Total test coverage measured in CI may not fall below the number in `.coverage-floor`, and that number may only rise: it was set to the first CI measurement minus one point, and is raised when coverage rises. The total and the slack are printed in the job summary. *(gate: `scripts/coverage-floor.sh check` and `ratchet` in CI; teeth cases in `scripts/gates-have-teeth.sh`)*

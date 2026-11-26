@@ -552,6 +552,74 @@ if [ -n "$(git status --porcelain)" ]; then
 	exit 1
 fi
 
+# --- ./scripts/coverage-floor.sh -------------------------------------------
+# The coverage floor reads a report the toolchain wrote, so its cases plant
+# reports in a scratch directory instead of mutating a tracked file: one per
+# format the gate reads (go, rust, python, js), each below the floor (must
+# fail), above it (must pass), and with nothing in it (must say MEASURED
+# NOTHING). Then the ratchet: a floor that went down must fail, one that rose
+# must pass, and no floor file at all is MEASURED NOTHING.
+cov_dir="$(mktemp -d)"
+cov_failures=0
+cov_case() { # name, expect (fail|pass|nothing), command...
+	local name="$1" expect="$2" out rc ok=0 said=0
+	shift 2
+	cases=$((cases + 1))
+	if out="$("$@" 2>&1)"; then rc=0; else rc=$?; fi
+	if grep -q 'MEASURED NOTHING' <<<"$out"; then said=1; fi
+	case "$expect" in
+	fail) if [ "$rc" -ne 0 ] && [ "$said" -eq 0 ]; then ok=1; fi ;;
+	pass) if [ "$rc" -eq 0 ]; then ok=1; fi ;;
+	nothing) if [ "$rc" -ne 0 ] && [ "$said" -eq 1 ]; then ok=1; fi ;;
+	esac
+	if [ "$ok" -eq 1 ]; then
+		printf 'ok    coverage-floor: %s\n' "$name"
+	else
+		printf 'FAIL  coverage-floor: %s (expected %s, exit %s)\n' "$name" "$expect" "$rc"
+		printf '%s\n' "$out" | sed 's/^/      /'
+		cov_failures=$((cov_failures + 1))
+	fi
+}
+printf '50\n' >"$cov_dir/floor"
+printf 'a.go:1:\tF\t40.0%%\ntotal:\t(statements)\t40.0%%\n' >"$cov_dir/go-low"
+printf 'a.go:1:\tF\t60.0%%\ntotal:\t(statements)\t60.0%%\n' >"$cov_dir/go-high"
+printf 'total:\t(statements)\t0.0%%\n' >"$cov_dir/go-empty"
+printf '{"data":[{"totals":{"lines":{"count":10,"covered":4,"percent":40.0}}}]}' >"$cov_dir/rust-low"
+printf '{"data":[{"totals":{"lines":{"count":10,"covered":6,"percent":60.0}}}]}' >"$cov_dir/rust-high"
+printf '{"data":[{"totals":{"lines":{"count":0,"covered":0,"percent":0}}}]}' >"$cov_dir/rust-empty"
+printf '{"totals":{"num_statements":10,"percent_covered":40.0}}' >"$cov_dir/py-low"
+printf '{"totals":{"num_statements":10,"percent_covered":60.0}}' >"$cov_dir/py-high"
+printf '{"totals":{"num_statements":0,"percent_covered":100.0}}' >"$cov_dir/py-empty"
+printf '{"total":{"lines":{"total":10,"covered":4,"pct":40}}}' >"$cov_dir/js-low"
+printf '{"total":{"lines":{"total":10,"covered":6,"pct":60}}}' >"$cov_dir/js-high"
+printf '{"total":{"lines":{"total":0,"covered":0,"pct":100}}}' >"$cov_dir/js-empty"
+for f in go rust py js; do
+	cov_case "$f below the floor" fail ./scripts/coverage-floor.sh check "$cov_dir/$f-low" "$cov_dir/floor"
+	cov_case "$f above the floor" pass ./scripts/coverage-floor.sh check "$cov_dir/$f-high" "$cov_dir/floor"
+	cov_case "$f counting nothing" nothing ./scripts/coverage-floor.sh check "$cov_dir/$f-empty" "$cov_dir/floor"
+done
+cov_case "no report at all" nothing ./scripts/coverage-floor.sh check "$cov_dir/absent" "$cov_dir/floor"
+printf 'not a report\n' >"$cov_dir/garbage"
+cov_case "a file that is not a report" nothing ./scripts/coverage-floor.sh check "$cov_dir/garbage" "$cov_dir/floor"
+cov_case "no floor recorded" nothing ./scripts/coverage-floor.sh check "$cov_dir/go-high" "$cov_dir/absent"
+printf '49.5\n' >"$cov_dir/lower"
+printf '# comment\n51\n' >"$cov_dir/higher"
+cov_case "ratchet: floor went down" fail ./scripts/coverage-floor.sh ratchet "$cov_dir/floor" "$cov_dir/lower"
+cov_case "ratchet: floor rose" pass ./scripts/coverage-floor.sh ratchet "$cov_dir/floor" "$cov_dir/higher"
+cov_case "ratchet: no floor file" nothing ./scripts/coverage-floor.sh ratchet "$cov_dir/floor" "$cov_dir/absent"
+# The floor this repository actually records must be one the gate can read.
+cov_case "the recorded floor parses" pass ./scripts/coverage-floor.sh ratchet "$cov_dir/absent" "${COVERAGE_FLOOR_FILE:-.coverage-floor}"
+rm -rf "$cov_dir"
+if [ "$cov_failures" -gt 0 ]; then
+	if [ -n "${failures+x}" ]; then
+		failures=$((failures + cov_failures))
+	else
+		echo "TOOTHLESS: coverage-floor, $cov_failures case(s) above" >&2
+		exit 1
+	fi
+fi
+# ---------------------------------------------------------------------------
+
 if [ "$failures" -gt 0 ]; then
 	printf '%d of %d cases failed.\n' "$failures" "$cases"
 	printf 'A gate that has quietly stopped catching anything looks exactly like a gate\n'

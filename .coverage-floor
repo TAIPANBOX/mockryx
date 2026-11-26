@@ -1,0 +1,4 @@
+# Total test coverage (statements, percent) CI may not fall below.
+# Set to the measured value minus one point; raise it, never lower it
+# (scripts/coverage-floor.sh check / ratchet).
+0
