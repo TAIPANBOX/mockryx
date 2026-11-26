@@ -6,7 +6,8 @@
 #   coverage-floor.sh ratchet <base-floor-file> [floor-file]
 #
 # floor-file defaults to .coverage-floor: one number (percent), '#' comments
-# allowed. The floor is the measured value minus one point when the gate was
+# allowed. A '# target: N' comment names the coverage the repository is
+# working towards; the summary reports the gap to it, and it gates nothing. The floor is the measured value minus one point when the gate was
 # introduced; raise it when coverage rises, never lower it.
 #
 # The report is read in the format the toolchain writes, so the extraction of
@@ -103,6 +104,10 @@ print("below" if pct < floor else "ok", f"{pct:.2f}", f"{floor:.2f}", f"{pct - f
 ' "$pct" "$floor")"
 	read -r state pct2 floor2 slack <<<"$verdict"
 	line="coverage ($kind): ${pct2}% against floor ${floor2}% (slack ${slack} points)"
+	target="$(awk '/^#[[:space:]]*target:[[:space:]]*[0-9]/ { sub(/^#[[:space:]]*target:[[:space:]]*/, ""); sub(/[^0-9.].*/, ""); print; exit }' "$floor_file")"
+	if [ -n "$target" ]; then
+		line="$line; target ${target}% ($(python3 -c 'import sys; g=float(sys.argv[2])-float(sys.argv[1]); print("reached" if g<=0 else f"{g:.2f} points to go")' "$pct" "$target"))"
+	fi
 	if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 		printf '### Coverage\n\n%s\n\n' "$line" >>"$GITHUB_STEP_SUMMARY"
 	fi
